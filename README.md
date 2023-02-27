@@ -72,3 +72,15 @@ Using this convention, a test was conducted on 50^2 nets, that is, with H and W 
 ![](Examples/ghSpeedTest1a.png)
 
 Note that the cooler colors are faster, and the warmer colors are the slower times.
+
+The most important take-away is that 'tall' and 'wide' nets of equal parameters take significantly different times. That is, having only a few hidden layers that are tall (ie. like a 12x3 net) is faster than the reverse with a similar number of parameters (ie. like a 5x13 net). It is quite worse, in fact:
+
+Net 1:
+- Shape = 12x3
+- Param.s = 312
+- Avg. calculation time = 49.2 microseconds
+
+Net 2:
+- Shape = 5x13
+- Param.s = 310
+- Avg. calculation time = 124 microseconds
