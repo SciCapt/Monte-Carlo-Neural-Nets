@@ -19,7 +19,7 @@ Training Details:
 
 Result:
 
-![](Examples/ghFit1.png
+![](Examples/ghFit1.png)
 
 ### New Method (fitting slopes using ELU)
 Training Details:
