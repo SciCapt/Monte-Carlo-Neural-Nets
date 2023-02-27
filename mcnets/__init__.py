@@ -1,1 +1,1 @@
-from mcnn_scicapt.main import *
+from mcnets.main import *
