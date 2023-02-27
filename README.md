@@ -8,3 +8,7 @@ By defualt, a RELU-type function is applied at every layer calculation to give n
 
 This is on TestPyPI, view the release at:
 https://test.pypi.org/project/mcnn-scicapt/
+
+This is also now on PyPI, view the latest release at:
+URL
+
