@@ -24,7 +24,7 @@ Result:
 ![](Examples/ghFit1b.png)
 
 ### New Method (fitting slopes using ELU)
-The new method still makes use of the same net, but instead of directly using the output as some sort of "y" value (ie y = f(x)), the output is used a a sort of rough derivative estimator (ie., a slope) that gets added to the previous point. This gives fantastic results compared to the old method as shown below. Also, do note the smaller net size, and the much shorter training session required to get the results!
+The new method still makes use of the same net, but instead of directly using the output as some sort of "y" value (ie y = f(x)), the output is used a a sort of rough derivative estimator (ie., a slope) that gets added to the previous point. Also, I found that using the ELU calculations withint the layers was optimal in this case. Overall, this method gives fantastic results compared to the old method as shown below. Also note the smaller net size and the much shorter training session used!
 
 Training Details:
 - Net Size = 312 params.
