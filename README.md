@@ -10,3 +10,22 @@ By defualt, a RELU-type function is applied at every layer calculation to give n
 
 This is on PyPI, view the latest release at:
 https://pypi.org/project/mcnets/
+
+## Curve Fitting
+### Old Method (choppy RELU)
+Training Details:
+- Net Size = 1176 parameters
+- Training Time = 420 s
+
+Result:
+
+![](Examples/ghFit1.png
+
+### New Method (fitting slopes using ELU)
+Training Details:
+- Net Size = 312 params.
+- Training Time = 18.1 s
+
+Result:
+
+![](Examples/ghFit2a.png)
