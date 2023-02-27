@@ -8,8 +8,5 @@ The basic operation of these nets is that they can be trained to some data set (
 
 By defualt, a RELU-type function is applied at every layer calculation to give non-linearites such that more advanced calculations are actually possible.
 
-This is on TestPyPI, view the release at:
-https://test.pypi.org/project/mcnn-scicapt/
-
-This is also now on PyPI, view the latest release at:
+This is on PyPI, view the latest release at:
 https://pypi.org/project/mcnets/
