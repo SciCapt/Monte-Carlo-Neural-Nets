@@ -15,11 +15,11 @@ https://pypi.org/project/mcnets/
 ### Old Method (choppy RELU)
 Training Details:
 - Net Size = 1176 parameters
-- Training Time = 420 s
+- Training Time = 213.4 s
 
 Result:
 
-![](Examples/ghFit1.png)
+![](Examples/ghFit1b.png)
 
 ### New Method (fitting slopes using ELU)
 Training Details:
@@ -28,4 +28,4 @@ Training Details:
 
 Result:
 
-![](Examples/ghFit2a.png)
+![](Examples/ghFit2b.png)
