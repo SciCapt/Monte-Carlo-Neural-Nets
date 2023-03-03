@@ -66,7 +66,7 @@ class AdvNet:
         l5 = f"="
         return l1*strlen + '\n' + l2.center(strlen, ' ') + '\n' + l3.center(strlen, ' ') + '\n' + l4.center(strlen, ' ') + '\n' + l6.center(strlen, ' ') + '\n' + l5*strlen
 
-    def TweakWeights(self, Amplitude: float, Selection='default'):
+    def TweakWeights(self, Amplitude: float, Selection='all'):
         """
         Adjust the weights of a neural net by a given amplitude.
         
@@ -104,8 +104,8 @@ class AdvNet:
 
          """
         # Translate selection of weights reqested, if any
-        if Selection == 'default':
-            # Use default range
+        if Selection == 'all':
+            # Use default range (all weights)
             Selection = [*range(len(self.weights))]
         elif Selection == 'gates':
             # Select first and last arrays
@@ -141,7 +141,7 @@ class AdvNet:
             # Make sure values are in the range [-1, 1]
             self.weights[i] = np.clip(self.weights[i], -1, 1)
 
-    def Calculate(self, inVector, hiddenFunction='RELU'):
+    def Calculate(self, inVector, hiddenFunction='ELU'):
         """
         Returns a neural net calculation for a given input vector. If the net used has an input size
         of one, a single float value can be given (array type not required).
@@ -156,7 +156,7 @@ class AdvNet:
             - If the net input size is 1, then a float can be given and a vector form is not required.
         
         2 - hiddenFunction
-        - Type == String (NONE, RELU, ELU)
+        - Type == String (NONE, ELU, ATAN)
 
         -- Lore --
 
@@ -168,11 +168,11 @@ class AdvNet:
         with no processing. Essentially this is not particularly useful, as it only for finding the 
         best linear regression of some data (when training the net), and can't do any unique behavior.
         
-        Selecting 'RELU' would, instead, process each summed vector 
-        to the non-linear function max(val, -0.4). RELU is a good general handler of most
+        Selecting 'ELU' would, instead, process each summed vector 
+        to the non-linear function max(val, -0.4). ELU is a good general handler of most
         neural nets according to modern designs. 
         
-        ELU instead limits values to the range [-1, 1] before being passed forward to the next set 
+        ATAN instead limits values to the range [-1, 1] before being passed forward to the next set 
         of weights.       
         """
         # Handling if a single number/float was given not in an array form
@@ -205,9 +205,9 @@ class AdvNet:
                     # Hidden layer function handling
                     if hiddenFunction == 'NONE':
                         pass
-                    elif hiddenFunction == 'RELU':
-                        calcVec[calcVec < -0.4] = 0
                     elif hiddenFunction == 'ELU':
+                        calcVec[calcVec < -0.4] = 0
+                    elif hiddenFunction == 'ATAN':
                         calcVec[calcVec < -1] = -1
                         calcVec[calcVec > 1]  = 1
                     else:
@@ -407,7 +407,7 @@ def LoadNet(name):
 
 def Train(Net, inputData, validationData, startingTweakAmp=0.8, 
           plotLive=False, plotResults=False, normalizeData=False, 
-          hiddenFunc="RELU", trainWeights='default', maxIterations=1000, 
+          hiddenFunc="ELU", trainWeights='all', maxIterations=1000, 
           blockSize=30, Silent=False):
     """
     Train a specified neural net to the given validation data, using the 
@@ -460,7 +460,7 @@ def Train(Net, inputData, validationData, startingTweakAmp=0.8,
     - Type == String
     - Decides what hidden-layer processing should be used. 'NONE' simply passes
     through each summed up vector to the next layer with no processing. The default,
-    'RELU', uses the function max(val, 0) before passing on to the next hidden layer.
+    'ELU', uses the function max(val, 0) before passing on to the next hidden layer.
 
     9 - trainWeights
     - Type == List (or 'gates' or 'middle')
@@ -585,7 +585,10 @@ def Train(Net, inputData, validationData, startingTweakAmp=0.8,
     # Training loop
     improvments = []
     tweakAmp = startingTweakAmp
-    validationVals = validationData[:, 0]
+    try:    ## Plot validation values
+        validationVals = validationData[:, 0]
+    except:
+        validationVals = validationData
     # print("\n-- Starting Training Loop --")
     for iterations in range(maxIterations):
         # Tweak net
@@ -681,7 +684,7 @@ def Train(Net, inputData, validationData, startingTweakAmp=0.8,
     
     return net, avgError
 
-def Forecast(Net, inputData, comparisonData=[], plotResults=True, hiddenFunc='RELU'):
+def Forecast(Net, inputData, comparisonData=[], plotResults=True, hiddenFunc='ELU'):
     """
     Test a net against a series of input values to get its current predictions which
     is then returned. Additionally, the predictions can be plotted if desired -- also
@@ -711,7 +714,7 @@ def Forecast(Net, inputData, comparisonData=[], plotResults=True, hiddenFunc='RE
     5 - hiddenFunc
     - Type == String
     - Type of processing used when calculating along the neural net weights. Reference .Calculate()
-    for more information. The default method is 'RELU'.
+    for more information. The default method is 'ELU'.
     """
 
     # Load in the requested neural net
@@ -794,7 +797,7 @@ def Forecast(Net, inputData, comparisonData=[], plotResults=True, hiddenFunc='RE
 
 def CycleTrain(Net, inputData, validationData, startingTweakAmp=0.8, 
           plotLive=False, plotResults=False, normalizeData=False, 
-          hiddenFnc="RELU", maxIterations=1000, maxCycles=5,
+          hiddenFnc="ELU", maxIterations=1000, maxCycles=5,
           blockSize=30, Silent=False):
     """
     Train a specified neural net to the given validation data, using the 
@@ -847,7 +850,7 @@ def CycleTrain(Net, inputData, validationData, startingTweakAmp=0.8,
     - Type == String
     - Decides what hidden-layer processing should be used. 'NONE' simply passes
     through each summed up vector to the next layer with no processing. The default,
-    'RELU', uses the function max(val, 0) before passing on to the next hidden layer.
+    'ELU', uses the function max(val, 0) before passing on to the next hidden layer.
 
     9 - trainWeights
     - Type == List (or 'gates' or 'middle')
