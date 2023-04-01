@@ -2,11 +2,11 @@
 
 ## Overview / Lore
 
-A package made to see how well a basic architecture of neural nets could be. The nets can be created with custom input and output heights, as well as full customization of the hidden layers' sizes (height and count of layers).
+A package made to see how well a basic architecture of neural nets could be. The nets can be created with custom input and output heights, as well as full customization of the hidden layers' sizes (height and count of layers) and activation functions that are applied at each space between the layers.
 
-The basic operation of these nets is that they can be trained to some data set (or not, currently working on a 'self-training' chess AI example) by randomly 'tweaking' the different parameter weight values within the net. These weight values are clipped to be restrained to the range [-1, 1].
+The basic operation of these nets is that they can be trained to some data set (or some score in an unsupervised case) by randomly 'tweaking' the different parameter weight values within the net. These weight values are clipped to be restrained to the range [-1, 1].
 
-By default, a RELU-type function is applied at every layer calculation to give non-linearites such that more advanced calculations are actually possible.
+If training a net in a supervised fashion, the training function, GenTrain(), iteratively creates 'generations' or 'batches' of nets from some parent net, and uses the one with the most improvement as the next parent net.
 
 This is on PyPI, view the latest release at:
 https://pypi.org/project/mcnets/
@@ -14,27 +14,32 @@ https://pypi.org/project/mcnets/
 
 ## Quickstart
 ### Example Code (Fit to f(x) = ln(x))
-Using the old method (which is no longer the best, see Curve Fitting Examples) a net can be created and trained in the following fashion:
+Since V0.2.0, the activation functions can be fully customized per layer in the created nets. This allows for very easy curve fitting applications such as the example below. Note that the section "Curve Fitting Examples" uses two outdated methods relative the this code example, but are kept to show progress that has been made.
 ```
 from mcnets import *
 from math import log
 import numpy as np
 
-# Make a neural net (layer heights of 1, 12, 12, 12, 1)
-net = AdvNet(1, [12]*3, 1)
+# Make a neural net 
+## Layer heights of 1, 10, 10 and 1
+## 3 Spaces/Activation Functions: first ELU, then ATAN, then NONE (linear)
+net = AdvNet(1, [10, 10], 1, ["ELU", "ATAN", "NONE"])
 
 # Show net characteristics
 print(net)
 
-# Make training data
+# Make data
 xTrain = [*range(30)]
 yTrain = [log(x + 1) for x in xTrain]
-inData = np.array(xTrain).reshape(len(xTrain), 1)
-valData = np.array(yTrain).reshape(len(yTrain), 1)
+inData = np.array(xTrain)
+valData = np.array(yTrain)
+
+# Thin data for training data (10 points)
+xThin, yThin, xIndicies = thinData(inData, valData, 10)
 
 # Train the net to the data and display the results
-net, avgError = CycleTrain(net, inData, valData, maxCycles=5, 
-                           plotResults=True, hiddenFnc="RELU")
+net, R2 = genTrain(net, xThin, yThin, R2Goal = 1)
+predictions = Forecast(net, inData, valData)
 ```
 This will yield some similar plot to the one of the old method shown below. For a small number of data points this is quick and works rather well. However, with a larger number of data points, the fit is worse and becomes noticably more choppy (again, as shown below).
 
