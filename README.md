@@ -41,7 +41,7 @@ xThin, yThin, xIndicies = thinData(inData, valData, 10)
 net, R2 = genTrain(net, xThin, yThin, R2Goal = 1)
 predictions = Forecast(net, inData, valData)
 ```
-This will yield some similar plot to the one of the old method shown below. For a small number of data points this is quick and works rather well. However, with a larger number of data points, the fit is worse and becomes noticably more choppy (again, as shown below).
+Using a straight forward method like this (essentially using the net as some functions f(x)) didn't work well before V0.2.1. However presently, being able to customize the activation function used at each layer space allows for this to now be possible and work very well (R^2 > 0.999 typically in this code example).
 
 ## Curve Fitting Examples
 ### Old Method
