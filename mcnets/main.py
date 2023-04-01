@@ -1,11 +1,12 @@
 from matplotlib import pyplot as plt
-import random as rn
 import numpy as np
+import textwrap as txt
 
 class AdvNet:
-    def __init__(self, inputCount: int, hiddenCounts: list, outputCount: int):
+    ## Default Functions ## 
+    def __init__(self, inputCount: int, hiddenCounts: list, outputCount: int, activations):
         """
-        Create a layered neural network from the given counts of neurons requested per layer.
+        Create a deep neural network from the given counts of neurons requested per layer.
 
         Inputs:
 
@@ -21,18 +22,40 @@ class AdvNet:
         - Type == int
         - Range == (0, inf]
 
+        4 - activations
+        - Possible Values: "NONE", "ELU", "ATAN", "RELU"
+            - NONE: No applied function
+            - ELU: max(val, -0.4)
+            - ATAN: max(val, -1) & min(val, 1)
+            - RELU: max(val, 0)
+        - A list of different functions per layer can be given, otherwise, all calculation
+          steps will use the single given activation function.
+        - Examples:
+            - AdvNet(1, [10, 20, 10], 2, "RELU") 
+                - 5-layer net / 4 in-between spaces
+                - Uses the "RELU" activation function for all (4) in-between spaces.
+            - AdvNet(2, [15, 15], 5, ["RELU", "ELU", "ATAN"]) 
+                - 4-layer net / 3 in-between spaces
+                - Uses RELU in between layers 1 & 2, ELU in between layers 2 & 3, and 
+                ATAN in between layers 3 & 4.
+
         Operation:
 
-        A single neural network is generated from the requested sizes, with 
+        A deep neural network is generated from the requested sizes, with 
         the initial weights set to random parameters in the range [-1, 1].
         The values given are directly used to create the amount of neurons
         for the specific layer.
 
-        The layers' sizes are in the order given, that is, of the form:
+        The layer's heights are in the order given, that is:
 
-        inputCount, hiddenCounts[0], hiddenCounts[1], ... hiddenCounts[n], outputCount
+        > inputCount, hiddenCounts[0], hiddenCounts[1], ... hiddenCounts[n-1], outputCount
 
         Where n is just the length of the given hiddenCounts list given.
+
+        For each step of forward propogation (n-1 total steps / spaces) an activation function
+        is referenced from the activation functions that the net has (use print(net) to see these).
+        If only one type was provided in the nets creation, all possible spaces use just this 
+        activation type.
         """
 
         # Matrix/Stuff Sizes
@@ -52,20 +75,46 @@ class AdvNet:
         weightSizes = [M.size for M in self.weights]
         self.parameters = sum(weightSizes)
 
+        # Construct activation functions list (if only given a single function type)
+        if type(activations) == str:
+            self.activationFunction = [activations]*len(self.weights)
+        elif type(activations) == list:
+            # Check that enough activation functions are given
+            if len(activations) >= len(self.weights):
+                self.activationFunction = activations
+            else:
+                raise ValueError(f"Not enough activation functions are provided! ({len(activations)} given, {len(self.weights)} required)")
+
     def __str__(self):
         # String Forming and formating
-        strlen = 56
+        strlen = 64
         l1 = f"="
         l2 = f"Neural Net Characteristics:"
-        l3 = f"Layer Sizes = {self.sizes}"
+
+        l3 = f"1. Layer Sizes = {self.sizes}"
+        l3 = txt.fill(l3, strlen-2)
+
         weightMedians = []
         for weights in self.weights:
             weightMedians.append(round(np.median(weights), 2))
-        l4 = f"Weight Medians = {weightMedians}"
-        l6 = f"# of Parameters: {self.parameters}"
-        l5 = f"="
-        return l1*strlen + '\n' + l2.center(strlen, ' ') + '\n' + l3.center(strlen, ' ') + '\n' + l4.center(strlen, ' ') + '\n' + l6.center(strlen, ' ') + '\n' + l5*strlen
+        l4 = f"2. Weight Medians = {weightMedians}"
+        l4 = txt.fill(l4, strlen-2)
 
+        l6 = f"3. Number of Parameters: {self.parameters}"
+
+        l7a = f"4. Activation Functions: {self.activationFunction}"
+        l7a = txt.fill(l7a, strlen-2)
+
+        # l7b = f"{self.activationFunction}"
+        l5 = f"="
+
+        # Resulting String
+        full = (l1*strlen + '\n' + l2.center(strlen, ' ') + '\n' + l3 + 
+                '\n' + l4 + '\n' + l6 + '\n' + 
+                l7a + '\n' + l5*strlen)
+        return full
+
+    ## Internal Functions ##
     def TweakWeights(self, Amplitude: float, Selection='all'):
         """
         Adjust the weights of a neural net by a given amplitude.
@@ -141,12 +190,11 @@ class AdvNet:
             # Make sure values are in the range [-1, 1]
             self.weights[i] = np.clip(self.weights[i], -1, 1)
 
-    def Calculate(self, inVector, hiddenFunction='ELU'):
+    def Calculate(self, inVector):
         """
-        Returns a neural net calculation for a given input vector. If the net used has an input size
+        Returns the neural net's calculation for a given input vector. If the net used has an input size
         of one, a single float value can be given (array type not required).
 
-        
         Inputs:
 
         1 - inVector
@@ -156,23 +204,26 @@ class AdvNet:
             - If the net input size is 1, then a float can be given and a vector form is not required.
         
         2 - hiddenFunction
-        - Type == String (NONE, ELU, ATAN)
+        - Type == String (NONE, ELU, ATAN, RELU)
+        - Note:
+            - If the net has an activation function for a particular layer (ie. not the defualt None
+            value) this is used instead of the "hiddenFunction" provided. Similarly, if the net has a
+            None value for a layer (as by default), the "hiddenFunction" provided is used.
 
         -- Lore --
 
-        Simple forward propogation of the vector through the neural net that the
-        function is called on via matrix multiplication with the net's weights.
+        Simple forward propogation of the vector through the neural net that the function is called on via 
+        matrix multiplication with the net's weights.
 
-        The hidden function handles any desired non-linear behavior within the hidden layers.
-        For example, for the 'NONE' selection, the layers simply pass through their summed up values
-        with no processing. Essentially this is not particularly useful, as it only for finding the 
-        best linear regression of some data (when training the net), and can't do any unique behavior.
+        The hidden function handles any desired non-linear behavior within the hidden layers. "NONE" can be
+        selected if desired, although this provides a fully linear net. That is, if trying to curve fit
+        using a net, it will only be capable of finding the best linear regression of the given data.
         
-        Selecting 'ELU' would, instead, process each summed vector 
-        to the non-linear function max(val, -0.4). ELU is a good general handler of most
-        neural nets according to modern designs. 
+        Selecting 'ELU' would, instead, process each summed vector to the non-linear function max(val, -0.4). 
         
-        ATAN instead limits values to the range [-1, 1] before being passed forward to the next set 
+        Similarly, "RELU" applies the function max(val, 0), such that all values below zero are set to zero.
+        
+        "ATAN" instead limits values to the range [-1, 1] before being passed forward to the next set 
         of weights.       
         """
         # Handling if a single number/float was given not in an array form
@@ -198,11 +249,14 @@ class AdvNet:
                 # Go through all of weights calculating the next vector
                 ## in vector, w1 vec, w2 vec, ... out vec
                 calcVec = inVector # Start the calcVector with the given input vector
-                for weights in self.weights:
+                for i, weights in enumerate(self.weights):
                     # Forward propogation
                     calcVec = sum(calcVec*weights)
 
-                    # Hidden layer function handling
+                    # Use the net's activation function for the current space
+                    hiddenFunction = self.activationFunction[i]
+
+                    # Apply the activation function
                     if hiddenFunction == 'NONE':
                         pass
                     elif hiddenFunction == 'ELU':
@@ -210,13 +264,15 @@ class AdvNet:
                     elif hiddenFunction == 'ATAN':
                         calcVec[calcVec < -1] = -1
                         calcVec[calcVec > 1]  = 1
+                    elif hiddenFunction == 'RELU':
+                        calcVec[calcVec < 0] = 0
                     else:
                         raise ValueError("Given hidden function is not of the avalible types!")
 
                     # Triple-checking size throughout forward prop.
                     calcVec = calcVec.reshape(calcVec.size, 1)
 
-                # Handling for single-number outputs (free it from the vector)
+                # Handling for single-number outputs (free it from the vector at the end)
                 if self.outSize == 1:
                     calcVec = calcVec[0][0]
 
@@ -237,10 +293,11 @@ class AdvNet:
         newInputCount = self.inSize
         newOutputCount = self.outSize
         newHiddenCounts = self.hiddenSize
+        newActivations = self.activationFunction
         newSizes = [newInputCount] + newHiddenCounts + [newOutputCount]
 
         # Make net net shell
-        newNet = AdvNet(newInputCount, newHiddenCounts, newOutputCount)
+        newNet = AdvNet(newInputCount, newHiddenCounts, newOutputCount, newActivations)
         
         # Setup weights
         for i in range(len(newSizes) - 1):
@@ -255,7 +312,7 @@ class AdvNet:
         file names are saved under a specific name and should not be
         altered. If errors related to the files is created (i.e. 
         'permission denied') then the simplest solution is simply
-        to move the files to a local drive instead, if possible.
+        to move the files to a local (non-cloud) drive instead, if possible.
         
         Inputs:
         
@@ -283,87 +340,33 @@ class AdvNet:
                     # error that can be avoided if tried again with a short
                     # time delay.
                     continue
+        
+        
+        # # Convert activation data from list to numerical array
+        data = []
+        for function in self.activationFunction:
+            # Conversions
+            if function == "NONE":
+                data.append(0)
+            elif function == "RELU":
+                data.append(1)
+            elif function == "ELU":
+                data.append(2)
+            elif function == "ATAN":
+                data.append(3)
+            else:
+                data.append(0)
 
-    def Dig(self, middlePercent=0, gatePercent=0):
-        """
-        *UNUSED*
-        There is no benefit currently found by using this function to force some weights 
-        to be a value of zero. Here is the legacy description anyways:
-
-        Set a random amount of weights equal to zero to test 'deactivating' neuron paths.
-
-        Inputs:
-
-        1 - middlePercent
-        - Type == Float
-        - Determines the percentage of weights (specifically of the arrays *not connected* to the
-        input or output layer) that should be randomaly assigned to zero.
-
-        2 - gatePercent
-        - Type == Float
-        - Determines the percentage of weights (specifically of the arrays *connected* to the
-        input or output layer) that should be randomaly assigned to zero. Having this seperate
-        from the middlePercent is important as their tends to be much less weights in the input
-        and output layers, so they should be treated with more care and kept non-zero if possible.
-        """
-
-        i = rn.choice([*range(1, len(self.weights) - 1)])
-        arr = self.weights[i]
-
-        inds = np.where(arr != 0)
-        if len(inds) != 0:
-            sel = rn.choice([*range(len(inds[0]))])
-            Y = inds[0][sel]
-            X = inds[1][sel]
-
-            arr[Y, X] = 0
-            self.weights[i] = arr
-
-        # All at once thing, maybe too complicated:
-        # # Set things to number
-        # middlePercent = middlePercent/100
-        # gatePercent = gatePercent/100
-
-        # # Get total sizes
-        # gateSizes = []; middleSizes = []
-        # for i, size in enumerate(self.sizes):
-        #     if i == len(self.sizes)-1:
-        #         break
-        #     elif i in [0, len(self.sizes)-2]:
-        #         gateSizes.append(size*self.sizes[i+1])
-        #     else:
-        #         middleSizes.append(size*self.sizes[i+1])
-
-        # # Get count of zeros to make
-        # gateZeros = gatePercent*sum(gateSizes)
-        # middleZeros = middlePercent*sum(middleSizes)
-
-        # # Make the zeros
-        # gateHolesDug = 0
-        # middleHolesDug = 0
-        # for i, arr in enumerate(self.weights):
-        #     # For Gate arrays
-        #     if i in [0, len(self.weights)-1]:
-        #         while gateHolesDug < gateZeros:
-        #             rX = rn.choice([*range(self.sizes[i+1])])
-        #             rY = rn.choice([*range(self.sizes[i])])
-        #             if arr[rY, rX] != 0:
-        #                 arr[rY, rX] = 0
-        #                 self.weights[i] = arr
-        #                 gateHolesDug += 1
-            
-        #     # For Middle arrays
-        #     else:
-        #         while middleHolesDug < middleZeros:
-        #             rX = rn.choice([*range(self.sizes[i+1])])
-        #             rY = rn.choice([*range(self.sizes[i])])
-        #             if arr[rY, rX] != 0:
-        #                 arr[rY, rX] = 0
-        #                 self.weights[i] = arr
-        #                 middleHolesDug += 1
+        # Save the activation function information
+        for tries in range(10):
+            try:
+                np.savetxt(f"NN_{name}_Activations", np.array(data))
+                break
+            except:
+                continue
 
 
-## Define external function methods ##
+## External Functions ##
 def LoadNet(name):
     """
     Returns a nerual net object with the loaded characteristics from the
@@ -377,7 +380,7 @@ def LoadNet(name):
     """
     # Load the various Characteristics and weights of the NN
     name = str(name)
-    for tries in range(10): ## Redundant loading loop, reference SaveNN
+    for tries in range(10): ## Redundant loading loop, reference SaveNN on 'onedrive issue'
         try:
             sizes = list(np.loadtxt(f"NN_{name}_Size"))
             break
@@ -388,8 +391,31 @@ def LoadNet(name):
     hiddenSize = sizes[1:len(sizes)-1]
     outSize = int(sizes[-1])
 
+    # Load in the activation function data
+    for tries in range(10): ## Redundant loading loop, reference SaveNN on 'onedrive issue'
+        try:
+            activations = list(np.loadtxt(f"NN_{name}_Activations"))
+            break
+        except:
+            continue
+
+    # Convert to str activation data
+    strActivations = []
+    for function in activations:
+        # Conversions
+        if function == 0:
+            strActivations.append("NONE")
+        elif function == 1:
+            strActivations.append("RELU")
+        elif function == 2:
+            strActivations.append("ELU")
+        elif function == 3:
+            strActivations.append("ATAN")
+        else:
+            strActivations.append("NONE")
+
     # From the size, construct the net frame
-    net = AdvNet(inSize, hiddenSize, outSize)
+    net = AdvNet(inSize, hiddenSize, outSize, strActivations)
 
     # Load in the saved net weights
     for i in range(len(net.sizes) - 1):
@@ -405,11 +431,390 @@ def LoadNet(name):
     # Return the generated neural net
     return net
 
-def Train(Net, inputData, validationData, startingTweakAmp=0.8, 
+def Forecast(Net, inputData, comparisonData=[], plotResults=True):
+    """
+    Test a net against a series of input values to get its current predictions which
+    is then returned. Additionally, the predictions are plotted (by default) along
+    with the comparison / validation data if provided.
+
+    Inputs:
+
+    1 - Net
+    - Type == String or AdvNet
+    - Looks for size and weights files with the given net name to load. If a 
+    neural net is provided instead, this is simply the net used. If loading a 
+    net, the size and weight files created from SaveNN(name) are gathered from
+    their specific name made when generated. So pls don't change their names, thx.
+
+    2 - inputData
+    - Type == List of vectors or (Numpy) Array
+
+    3 -  comparisonData
+    - Type == List or single-column vector
+    - Used to plot against the first outputs of the net's output vector. If a net only has a single
+    output, this comparison data is of course just plotted against the net's only predictions.
+
+    4 -  plotResults
+    - Type == Bool
+    - Decides if the resulting predictions are plotted for a visualization
+    """
+
+    # Load in the requested neural net
+    if type(Net) not in [str, AdvNet]:
+        raise TypeError(f"netName should be a string or AdvNet! Not {type(Net)} ")
+    if type(Net) == str:
+        net = LoadNet(Net)
+    elif type(Net) == AdvNet:
+        net = Net
+
+    # Shape input data into matrix from the data vectors
+    if type(inputData) == list:
+        # Check that the given data have the same len()
+        sizes = [np.size(i) for i in inputData]
+        sizes.sort()
+        if sizes != len(sizes)*[sizes[0]]:
+            raise ValueError(f"Input Data does not all have the same size! Sizes: {sizes}")
+        else:
+            dataSize = sizes[0]
+
+        # Check that there are the correct amount of inputs
+        inSize = len(inputData)
+        if inSize != net.inSize:
+            raise ValueError(f"Given # of unique inputs {len(inputData)} does not match the net input size {net.inSize}!")
+        
+        # If sizes are correct, transform list into a matrix of vectors
+        xData = np.zeros((sizes[0], len(inputData)))
+        for i, data in enumerate(inputData):
+            data = np.array(data).reshape(sizes[0])
+            xData[:, i] = data
+    # Check input data size if given as array
+    elif type(inputData) == np.ndarray:
+        # Check for the correct amount of inputs
+        try:
+            inSize = np.size(inputData, 1)
+        except:
+            inSize = 1
+        dataSize = np.size(inputData, 0)
+        if inSize != net.inSize:
+            raise ValueError(f"Given # of unique inputs {inSize} does not match the net input size {net.inSize}!")
+        else:
+            xData = inputData
+    else:
+        raise TypeError("Unrecognized input data type!")
+
+    # Calculate predictions for given inputs
+    predictions = []
+    if plotResults:
+        forPlot = []
+    for i in range(dataSize):
+        # Generate net input vector
+        if inSize > 1:
+            invec = np.array(xData[i]).reshape(1,inSize)
+        else:
+            invec = np.array(xData[i]).reshape(1,1)
+
+        # Get net prediciton
+        val = net.Calculate(invec)
+        predictions.append(val)
+
+        # Add first type of net output to plot for later
+        if plotResults:
+            try:
+                forPlot.append(val[0])
+            except:
+                forPlot.append(val)
+    
+    # Plot results if desired
+    if plotResults:
+        plt.cla() # Clear anything from ealier training plots if applicable
+
+        # plt.plot([*range(len(forPlot))], forPlot)
+        plt.plot(xData, forPlot)
+
+        if len(forPlot) == np.size(comparisonData):
+
+            # plt.plot([*range(np.size(comparisonData))], comparisonData, "--")
+            plt.plot(xData, comparisonData, "--")
+
+        plt.legend(["Forecasted Data", "Validation Data"])
+        plt.title("Net Predictions")
+        plt.show()
+
+    # Return forecast values
+    return predictions
+
+def Extend(baseNet:AdvNet, d_height:int, imputeType:str = "zeros"):
+    """
+    Returns an AdvNet that has its hidden layers height increased by d_height,
+    with the base weight values given from baseNet. 
+    The input and output layer sizes are not changed.
+
+    1. baseNet
+        - AdvNet to use as a starting point for the parameters
+
+    2. d_height
+        - The integer change in height that should be added to the all hidden layers height
+
+    3. imputeType
+        - "median", "zeros" or "random"
+        - Determines which value is used for filling the new weights created.
+        - Default is zeros, as the others tend to not provide good results.
+    """
+    # Create an isolate version of net
+    net = baseNet.CopyNet()
+
+    # Loop
+    for i, arr in enumerate(net.weights):
+        # Get current weight array dimensions
+        Y, X = np.size(arr, axis=0), np.size(arr, axis=1)
+
+        # Determine new size
+        if i == 0:
+            newSize = (Y, X+d_height)
+        elif i == len(net.weights)-1:
+            newSize = (Y+d_height, X)
+        else:
+            newSize = (Y+d_height, X+d_height)
+
+        # Get impute type
+        if imputeType == "median":
+            ogMedian = np.median(arr)
+        elif imputeType == "zeros":
+            ogMedian = 0
+        elif imputeType == "random":
+            ogMedian = np.random.rand(newSize[0], newSize[1])
+
+        # Rules for extending array sizes=
+        newArr = np.zeros(newSize) + ogMedian
+        
+        # Put in existing data into new extended array
+        newArr[:Y, :X] = arr
+
+        # Put new array size into new
+        net.weights[i] = newArr
+
+    # Update various size characteristics of the new net
+    net.hiddenSize = [i+d_height for i in net.hiddenSize]
+    net.sizes[1:-1] = net.hiddenSize
+    net.parameters = sum([M.size for M in net.weights])
+
+    # Finish
+    return net
+
+def netMetrics(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, returnAll:bool = False):
+    """
+    Returns the nets R^2 value for the given x input data and y validation data.
+
+    returnAll:
+        - If True, all errors are returned in the order of (R^2, ResidualError, RegressionError, TotalError).
+          Otherwise, just the R^2 value is returned.
+    """
+
+    # Get predictions
+    yHatList = Forecast(net, xArr, plotResults=False)
+
+    ## Errors ##
+    # Residual
+    try:
+        sizeY = np.size(yArr, axis=1)
+    except:
+        sizeY = 1
+    sizeX = np.size(yArr, axis=0)
+    SSres = np.sum((np.array(yHatList).reshape(sizeY, sizeX) - yArr) ** 2)
+
+    # Regression
+    yMean = np.mean(yArr)
+    SSreg = np.sum((np.array(yHatList) - yMean) ** 2)
+
+    # Total
+    SStot = SSres + SSreg
+
+    # R2-D2 Value
+    if not returnAll:
+        return SSreg / SStot
+    else:
+        return SSreg / SStot, SSres, SSreg, SStot
+
+def genTrain(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, iterations:int = 1000, 
+                    batchSize:int = 0, gamma:int = 50, weightSelection:str = None, 
+                    R2Goal = 0.999, Silent:bool = False):
+    """
+    Returns a net and its R^2 value relative to the given X and Y data.
+    
+    Instead of always using the first net that has any improvement from the previous best net,
+    a 'batch' of nets are generated from the parent net, then tested to find the best of those.
+
+    Net:
+        - The deep neural net to be trained.
+
+    xArr:
+        - Input data for the net.
+
+    yArr:
+        - Validation data used to train the net to.
+
+    iterations:
+        - Amount of attempts at improving the net's fit to the data.
+
+    batchSize:
+        - Amount of nets the be constructed and tested for improvements per iteration.
+        - The default value (0) instead calculates a batch size based on the current iteration.
+          The minimum batch size used in this case is 10.
+
+    gamma:
+        - Sets the learning factor exponential decay rate. That is, every 'gamma' number 
+          of iterations, the learning rate will have decreased by 1/2.
+
+    weightSelection: (all, gates, middle, None)
+        - Which weight array(s) that are to be modified to train the net.
+        - The default method (called by None), alternates between training
+          the gates and middle arrays every iteration.
+
+    R2Goal:
+        - The target R2 value to train the net to. Training automatically stops once this goal is reached.
+
+    Silent:
+        - Turns off printing the current progress and best R^2 value during training.
+    """
+
+    # Verify data types
+    if type(net) == AdvNet and type(xArr) == np.ndarray and type(yArr) == np.ndarray:
+        # print("All data is good")
+        pass
+    else:
+        print("A data type is not correct")
+
+    # Get inital accuracy
+    currentR2 = netMetrics(net, xArr, yArr)
+
+    # Generational Training method
+    for I in range(iterations):
+        # Get current tweak amplitude
+        twk = 2 ** (-I / gamma)        ## ~30-60 seems to be a good scale for this (found via Train())
+
+        # exp. weight selection
+        if weightSelection == None:
+            if I%2 == 0:
+                weightSelection = 'gates'
+            else:
+                weightSelection = 'middle'
+
+        #### This doesn't seem worth the usage
+        # Smart Batch Size handling if at 0 default
+        if batchSize <= 0:
+            depth = max(10, round(20 * 2**-(I / 1000)))
+        else:
+            depth = batchSize
+
+        # Get new mutated test nets
+        testNets = []
+        for n in range(depth):
+            newNet = net.CopyNet()
+            newNet.TweakWeights(twk, Selection=weightSelection)
+            testNets.append(newNet)
+
+        # Get the offspring's scores
+        newNetScores = []
+        for mutNet in testNets:
+            newR2 = netMetrics(mutNet, xArr, yArr)
+            newNetScores.append(newR2)
+
+        # See if the best score is an improvement
+        newBestR2 = max(newNetScores)
+        if newBestR2 > currentR2:
+            # Actions for improvement
+            bestIndex = newNetScores.index(newBestR2)
+            net = testNets[bestIndex].CopyNet()
+            currentR2 = newBestR2
+
+        # Stop iterations if net achieved accuracy goal
+        if currentR2 >= R2Goal and not Silent:
+            print(f"R2: {currentR2:.6f} | Training: {'=='*20}", end='\r')
+            print()
+            return net, currentR2
+
+        # Update fancy progress bar stuff
+        if not Silent:
+            pix1 = '='
+            pix2 = '-'
+            donePercent = I / (iterations - 1)
+            barLength = 40
+            pix1Len = round(barLength * donePercent)
+            pix2Len = barLength - pix1Len
+            print(f"R2: {currentR2:.6f} | Training: {pix1*pix1Len}{pix2*pix2Len}", end='\r')
+    
+    # Finish with returning best net and its R2 value
+    if not Silent:
+        print(f"R2: {currentR2:.6f} | Training: {'=='*20}", end='\r')
+        print()
+    return net, currentR2
+
+def thinData(xData, yData, numPoints:int):
+    """
+    Returns three arrays for AdvNet curve fitting / plotting from the arrays of given data (this is 
+    primarily meant for curve fitting using ATAN AdvNets, as fitting to all the data tends to be 
+    more than what is neccessary).
+    
+    Array 1 is the thinned x-data for the net input data. This array will have a number of data points
+    equal to numPoints that are seperated evenly.
+
+    Array 2 is the thinned y-data for the net validation data. This array has the same number of data
+    points as Array 1.
+
+    Array 3 is the indicies sliced at -- this is useful for plotting the thinned y-data.
+
+    Notes:
+        -The start and ending points of the given data are forced to be included, so the gap between the last 
+        and second to last data point in this array might not match the rest of the data points' spacing.
+    """
+
+    # Get data size
+    try:
+        # For multiple output columns
+        dataLen = yData.size / np.size(yData, axis=1)
+    except:
+        # For single output columns
+        dataLen = yData.size
+
+    # Check that number of points requested is lower than amount of data points
+    if numPoints > dataLen:
+        print(f"numPoints > Length of given data! Reducing to 10% of the points instead.")
+        numPoints = dataLen * 0.10
+
+    # Calculate step size
+    step = round(dataLen / (numPoints-1))
+
+    # Get the thinned y data and their indicies (for graphing)
+    yThinData = []
+    xThinData = []
+    xPlotData = []
+    for i in range(0, dataLen, step):
+        yThinData.append(yData[i])
+        xThinData.append(xData[i])
+        xPlotData.append(i)
+
+    # Check that the last data point is included
+    if yThinData[-1] != yData[-1]:
+        yThinData.append(yData[-1])
+        xThinData.append(xData[-1])
+        xPlotData.append(yData.size)
+
+    # # Thinned x data
+    # ## This is what to use for small nets when curve fitting, as fitting to the true indicies is much harder
+    # xShort = [*range(len(yShort))]
+
+    # Finish
+    return np.array(xThinData), np.array(yThinData), np.array(xPlotData)
+   
+
+## Old / Depreceated ##
+def Train(Net, inputData, yData, startingTweakAmp=0.8, 
           plotLive=False, plotResults=False, normalizeData=False, 
           hiddenFunc="ELU", trainWeights='all', maxIterations=1000, 
           blockSize=30, Silent=False):
     """
+    **** Depreceated since version 0.2.0 ****
+
     Train a specified neural net to the given validation data, using the 
     input data as the input vector to the net. Returns the trained net
     and the final average error after completion. Note the error is 
@@ -429,7 +834,7 @@ def Train(Net, inputData, validationData, startingTweakAmp=0.8,
     - Size == # of unique data lists = Net input size
     - If an array is given, the columns should be the data points of that inputs
 
-    3 - validationData
+    3 - yData
     - Type == Numpy Array or List
 
     4 - startingTweakAmp
@@ -533,34 +938,34 @@ def Train(Net, inputData, validationData, startingTweakAmp=0.8,
         raise TypeError("Unrecognized input data type!")
 
     # Shape validation data into matrix from the data vectors
-    if type(validationData) == list:
+    if type(yData) == list:
         # Check that the given data have the same len()
-        ysizes = [np.size(i) for i in validationData].sort()
+        ysizes = [np.size(i) for i in yData].sort()
         if ysizes != len(ysizes)*[ysizes[0]]:
             raise ValueError(f"Validation Data does not all have the same size! Sizes: {ysizes}")
         else:
             ydataSize = ysizes[0]
 
         # Check that there are the correct amount of inputs
-        if len(validationData) != net.inSize:
-            raise ValueError(f"Given # of unique validations {len(validationData)} does not match the net output size {net.inSize}!")
+        if len(yData) != net.inSize:
+            raise ValueError(f"Given # of unique validations {len(yData)} does not match the net output size {net.inSize}!")
         
         # If sizes are correct, transform list into a matrix of vectors
-        yData = np.zeros((ysizes[0], len(validationData)))
-        for i, data in enumerate(validationData):
+        yData = np.zeros((ysizes[0], len(yData)))
+        for i, data in enumerate(yData):
             yData[:, i] = data
     # Check validation data size if given as array
-    elif type(validationData) == np.ndarray:
+    elif type(yData) == np.ndarray:
         # Check for the correct amount of inputs
         try:
-            yinSize = np.size(validationData, 1)
+            yinSize = np.size(yData, 1)
         except:
             yinSize = 1
-        ydataSize = np.size(validationData, 0)
+        ydataSize = np.size(yData, 0)
         if yinSize != net.outSize:
             raise ValueError(f"Given # of unique validations {yinSize} does not match the net output size {net.outSize}!")
         else:
-            yData = validationData
+            yData = yData
     else:
         raise TypeError("Unrecognized validation data type!")
     
@@ -586,9 +991,9 @@ def Train(Net, inputData, validationData, startingTweakAmp=0.8,
     improvments = []
     tweakAmp = startingTweakAmp
     try:    ## Plot validation values
-        validationVals = validationData[:, 0]
+        validationVals = yData[:, 0]
     except:
-        validationVals = validationData
+        validationVals = yData
     # print("\n-- Starting Training Loop --")
     for iterations in range(maxIterations):
         # Tweak net
@@ -621,9 +1026,9 @@ def Train(Net, inputData, validationData, startingTweakAmp=0.8,
 
             # Sum up current error
             if inSize == 1:
-                correct = validationData[i]
+                correct = yData[i]
             else:
-                correct = validationData[i, :]
+                correct = yData[i, :]
             SSE += np.sum((correct-val)**2)
 
         # Handel Starting case
@@ -684,122 +1089,13 @@ def Train(Net, inputData, validationData, startingTweakAmp=0.8,
     
     return net, avgError
 
-def Forecast(Net, inputData, comparisonData=[], plotResults=True, hiddenFunc='ELU'):
-    """
-    Test a net against a series of input values to get its current predictions which
-    is then returned. Additionally, the predictions can be plotted if desired -- also
-    against some comparison data if provided.
-
-    Inputs:
-
-    1 - Net
-    - Type == String or AdvNet
-    - Looks for size and weights files with the given net name to load. If a 
-    neural net is provided instead, this is simply the net used. If loading a 
-    net, the size and weight files created from SaveNN(name) are gathered from
-    their specific name made when generated. So pls don't change their names, thx.
-
-    2 - inputData
-    - Type == List of vectors or (Numpy) Array
-
-    3 -  comparisonData
-    - Type == List or single-column vector
-    - Used to plot against the first outputs of the net's output vector. If a net only has a single
-    output, this comparison data is of course just plotted against the net's only predictions.
-
-    4 -  plotResults
-    - Type == Bool
-    - Decides if the resulting predictions are plotted for a visualization
-
-    5 - hiddenFunc
-    - Type == String
-    - Type of processing used when calculating along the neural net weights. Reference .Calculate()
-    for more information. The default method is 'ELU'.
-    """
-
-    # Load in the requested neural net
-    if type(Net) not in [str, AdvNet]:
-        raise TypeError(f"netName should be a string or AdvNet! Not {type(Net)} ")
-    if type(Net) == str:
-        net = LoadNet(Net)
-    elif type(Net) == AdvNet:
-        net = Net
-
-    # Shape input data into matrix from the data vectors
-    if type(inputData) == list:
-        # Check that the given data have the same len()
-        sizes = [np.size(i) for i in inputData]
-        sizes.sort()
-        if sizes != len(sizes)*[sizes[0]]:
-            raise ValueError(f"Input Data does not all have the same size! Sizes: {sizes}")
-        else:
-            dataSize = sizes[0]
-
-        # Check that there are the correct amount of inputs
-        inSize = len(inputData)
-        if inSize != net.inSize:
-            raise ValueError(f"Given # of unique inputs {len(inputData)} does not match the net input size {net.inSize}!")
-        
-        # If sizes are correct, transform list into a matrix of vectors
-        xData = np.zeros((sizes[0], len(inputData)))
-        for i, data in enumerate(inputData):
-            data = np.array(data).reshape(sizes[0])
-            xData[:, i] = data
-    # Check input data size if given as array
-    elif type(inputData) == np.ndarray:
-        # Check for the correct amount of inputs
-        try:
-            inSize = np.size(inputData, 1)
-        except:
-            inSize = 1
-        dataSize = np.size(inputData, 0)
-        if inSize != net.inSize:
-            raise ValueError(f"Given # of unique inputs {inSize} does not match the net input size {net.inSize}!")
-        else:
-            xData = inputData
-    else:
-        raise TypeError("Unrecognized input data type!")
-
-    # Calculate predictions for given inputs
-    predictions = []
-    if plotResults:
-        forPlot = []
-    for i in range(dataSize):
-        # Generate net input vector
-        if inSize > 1:
-            invec = np.array(xData[i]).reshape(1,inSize)
-        else:
-            invec = np.array(xData[i]).reshape(1,1)
-
-        # Get net prediciton
-        val = net.Calculate(invec, hiddenFunction=hiddenFunc)
-        predictions.append(val)
-
-        # Add first type of net output to plot for later
-        if plotResults:
-            try:
-                forPlot.append(val[0])
-            except:
-                forPlot.append(val)
-    
-    # Plot results if desired
-    if plotResults:
-        plt.cla() # Clear anything from ealier training plots if applicable
-        plt.plot([*range(len(forPlot))], forPlot)
-        if len(forPlot) == np.size(comparisonData):
-            plt.plot([*range(np.size(comparisonData))], comparisonData)
-        plt.legend(["Forecasted Data", "Comparison Data"])
-        plt.title("Net Predictions")
-        plt.show()
-
-    # Return forecast values
-    return predictions
-
-def CycleTrain(Net, inputData, validationData, startingTweakAmp=0.8, 
+def CycleTrain(Net, inputData, yData, startingTweakAmp=0.8, 
           plotLive=False, plotResults=False, normalizeData=False, 
           hiddenFnc="ELU", maxIterations=1000, maxCycles=5,
           blockSize=30, Silent=False):
     """
+    **** Depreceated since version 0.2.0 ****
+
     Train a specified neural net to the given validation data, using the 
     input data as the input vector to the net. Returns the trained net
     and the final average error after completion. Note the error is 
@@ -819,7 +1115,7 @@ def CycleTrain(Net, inputData, validationData, startingTweakAmp=0.8,
     - Size == # of unique data lists = Net input size
     - If an array is given, the columns should be the data points of that inputs
 
-    3 - validationData
+    3 - yData
     - Type == Numpy Array or List
 
     4 - startingTweakAmp
@@ -884,25 +1180,27 @@ def CycleTrain(Net, inputData, validationData, startingTweakAmp=0.8,
     """
 
     # Get initial Error
-    Net, bestError = Train(Net, inputData, validationData, 
+    Net, bestError = Train(Net, inputData, yData, 
                         startingTweakAmp=startingTweakAmp, normalizeData=normalizeData, 
                         hiddenFunc=hiddenFnc, maxIterations=1, 
                         blockSize=blockSize, Silent=True)
     
     # Start cycle training (limit to 1000 just in case)
     for cycle in range(maxCycles):
-        print(f"Starting Cycle #{cycle+1}")
-        Net, error = Train(Net, inputData, validationData, 
+        if Silent == False:
+            print(f"Starting Cycle #{cycle+1}")
+        
+        Net, error = Train(Net, inputData, yData, 
                             startingTweakAmp=startingTweakAmp, normalizeData=normalizeData, 
                             hiddenFunc=hiddenFnc, maxIterations=maxIterations, 
                             blockSize=blockSize, Silent=Silent, trainWeights=[0],
                             plotLive=plotLive, plotResults=False)
-        Net, error1 = Train(Net, inputData, validationData, 
+        Net, error1 = Train(Net, inputData, yData, 
                             startingTweakAmp=startingTweakAmp, normalizeData=normalizeData, 
                             hiddenFunc=hiddenFnc, maxIterations=maxIterations, 
                             blockSize=blockSize, Silent=Silent, trainWeights='middle',
                             plotLive=plotLive, plotResults=False)
-        Net, error2 = Train(Net, inputData, validationData, 
+        Net, error2 = Train(Net, inputData, yData, 
                             startingTweakAmp=startingTweakAmp, normalizeData=normalizeData, 
                             hiddenFunc=hiddenFnc, maxIterations=maxIterations, 
                             blockSize=blockSize, Silent=Silent, trainWeights=[-1],
@@ -910,7 +1208,8 @@ def CycleTrain(Net, inputData, validationData, startingTweakAmp=0.8,
         
         # Check for enough improvement
         if (error2)/bestError > 0.997:
-            print("Improvement of less than 0.3% -- Training concluded")
+            if Silent == False:
+                print("Improvement of less than 0.3% -- Training concluded")
             break
         
         # Set next best error
@@ -918,12 +1217,13 @@ def CycleTrain(Net, inputData, validationData, startingTweakAmp=0.8,
 
     # If max cycles reached
     if cycle + 1 == maxCycles:
-        print(f"Maximum cycles of {maxCycles} completed")
+        if Silent == False:
+            print(f"Maximum cycles of {maxCycles} completed")
     
     # Plot results if desired
     if plotResults:
         plt.cla() # Clear anything from ealier training plots if applicable
-        Forecast(Net, inputData, validationData, plotResults=plotResults)
+        Forecast(Net, inputData, yData, plotResults=plotResults)
 
     # Finish by giving back the improved net and its final mean error
     return Net, bestError
