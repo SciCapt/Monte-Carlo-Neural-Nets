@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
 import numpy as np
 import textwrap as txt
+import os
 
 class AdvNet:
     ## Default Functions ## 
@@ -23,11 +24,12 @@ class AdvNet:
         - Range == (0, inf]
 
         4 - activations
-        - Possible Values: "NONE", "ELU", "ATAN", "RELU"
+        - Possible Values: "NONE", "ELU", "ATAN", "RELU", "SIG"
             - NONE: No applied function
-            - ELU: max(val, -0.4)
-            - ATAN: max(val, -1) & min(val, 1)
-            - RELU: max(val, 0)
+            - ELU: Exponential up to x=0, then uses y=x
+            - ATAN: Uses arctan(x)
+            - RELU: max(x, 0)
+            - SIG: Sigmoid function
         - A list of different functions per layer can be given, otherwise, all calculation
           steps will use the single given activation function.
         - Examples:
@@ -71,19 +73,28 @@ class AdvNet:
             newWeightsArr = (np.random.rand(self.sizes[i], self.sizes[i+1]) - 0.5)
             self.weights.append(newWeightsArr)
 
-        # Number of Parameters in the Weights
+        # # Setup Biases
+        # self.biases = [2*np.random.rand(self.sizes[b+1], 1) - 1 for b in range(len(self.weights)-1)]
+
+        # Calculate the number of Parameters in the Weights/net
         weightSizes = [M.size for M in self.weights]
         self.parameters = sum(weightSizes)
 
         # Construct activation functions list (if only given a single function type)
         if type(activations) == str:
             self.activationFunction = [activations]*len(self.weights)
+
+        # Activation list if given a list of functions
         elif type(activations) == list:
-            # Check that enough activation functions are given
-            if len(activations) >= len(self.weights):
+            # Check that the correct amount of activation functions were provided
+            LA = len(activations)
+            LW = len(self.weights)
+            if LA == LW:
                 self.activationFunction = activations
-            else:
-                raise ValueError(f"Not enough activation functions are provided! ({len(activations)} given, {len(self.weights)} required)")
+            elif LA < LW:
+                raise ValueError(f"Not enough activation functions provided! ({LA} given, {LW} required)")
+            elif LA > LW:
+                raise ValueError(f"Too many activation functions provided! ({LA} given, {LW} required)")
 
     def __str__(self):
         # String Forming and formating
@@ -115,9 +126,10 @@ class AdvNet:
         return full
 
     ## Internal Functions ##
-    def TweakWeights(self, Amplitude: float, Selection='all'):
+    def TweakWeights(self, Amplitude: float, Selection='all', returnChange:bool = False):
         """
-        Adjust the weights of a neural net by a given amplitude.
+        Adjust the weights of a neural net by a given amplitude. The net change in the 
+        weight arrays can be optionally returned for gradient decent calculation later.
         
         Inputs:
 
@@ -143,7 +155,7 @@ class AdvNet:
         The range of these values is transformed to a middle of 0 by subtracting 0.5.
         By then multiplying by 2*Amplitude, the new range becomes [-Amplitude, Amplitude].
 
-        *The net weights are clipped to the range [-1,1], therefore, an amplitude magnitude 
+        The net weights are clipped to the range [-1,1], therefore, an amplitude magnitude 
         above 1 is rather aggressive. Typical starting values include 0.2, 0.02, etc. and
         can be decreased to achieve finer tuning.
 
@@ -151,7 +163,7 @@ class AdvNet:
         for even finer tuning of the parameters. Any indicies given in Selection that are out 
         of the range of weight arrays are ignored.
 
-         """
+        """
         # Translate selection of weights reqested, if any
         if Selection == 'all':
             # Use default range (all weights)
@@ -161,7 +173,7 @@ class AdvNet:
             Selection = [0, -1]
         elif Selection == 'middle':
             # Select all non-gate arrays
-            Selection = [*range(1, len(self.weights))]
+            Selection = [*range(1, len(self.weights)-1)]
         else:
             # Check selection for any non-valid indicies to call the weights
             Selection.sort()
@@ -174,6 +186,10 @@ class AdvNet:
                     Selection[i] + len(self.weights) < 0):
                     Selection.pop(i)
 
+        # List of weight array changes if requested
+        if returnChange:
+            Wo = [wi.copy() for wi in self.weights]
+
         # Adjust all the weights randomly, with a maximum change magnitude of Amplitude
         for i in Selection:
             # Negative Indicies
@@ -181,14 +197,20 @@ class AdvNet:
                 # raise ValueError("Negative Indicies to select weights is not supported!")
                 i += len(self.weights)
 
-            # Generate arrays of values to tweak existing weights
-            weightTweak = (np.random.rand(self.sizes[i], self.sizes[i+1]) - 0.5)*(2*Amplitude)
-
             # Add tweaks to existing weights
-            self.weights[i] += weightTweak
+            self.weights[i] += (np.random.rand(self.sizes[i], self.sizes[i+1]) - 0.5)*(2*Amplitude)
 
             # Make sure values are in the range [-1, 1]
             self.weights[i] = np.clip(self.weights[i], -1, 1)
+
+        # Note change in weight array after clipping
+        if returnChange:
+            dW = [(self.weights[i] - Wo[i]) for i in range(len(self.weights))]
+            return dW
+
+        # # Adjust the bias values
+        # for i in range(len(self.biases)):
+        #     self.biases[i] = np.clip(self.biases[i] + 2*Amplitude*(np.random.rand(self.biases[i].size, 1) - 0.5), -5, 5)
 
     def Calculate(self, inVector):
         """
@@ -202,30 +224,8 @@ class AdvNet:
         - Size == (netInputCount, 1) or (1, netInputCount)
         - Note: 
             - If the net input size is 1, then a float can be given and a vector form is not required.
-        
-        2 - hiddenFunction
-        - Type == String (NONE, ELU, ATAN, RELU)
-        - Note:
-            - If the net has an activation function for a particular layer (ie. not the defualt None
-            value) this is used instead of the "hiddenFunction" provided. Similarly, if the net has a
-            None value for a layer (as by default), the "hiddenFunction" provided is used.
+        """  
 
-        -- Lore --
-
-        Simple forward propogation of the vector through the neural net that the function is called on via 
-        matrix multiplication with the net's weights.
-
-        The hidden function handles any desired non-linear behavior within the hidden layers. "NONE" can be
-        selected if desired, although this provides a fully linear net. That is, if trying to curve fit
-        using a net, it will only be capable of finding the best linear regression of the given data.
-        
-        Selecting 'ELU' would, instead, process each summed vector to the non-linear function max(val, -0.4). 
-        
-        Similarly, "RELU" applies the function max(val, 0), such that all values below zero are set to zero.
-        
-        "ATAN" instead limits values to the range [-1, 1] before being passed forward to the next set 
-        of weights.       
-        """
         # Handling if a single number/float was given not in an array form
         try:
             # Test if a vector form was given
@@ -234,14 +234,25 @@ class AdvNet:
             # Not a vector -- check that net input size is one to confirm a single value works
             if self.inSize == 1:
                 inVector = np.array(inVector).reshape(1, 1)
+            else:
+                raise ValueError(f"Net input size of 1 expected, got {self.inSize} instead. It's also possible the inVector is simply not a numpy array/vector")
             
-        # Check if the overall size is correct
-        if inVector.size == np.size(inVector, 0) or inVector.size == np.size(inVector, 1):
-            # Convert row vectors to column vectors
-            if self.inSize != 1:
-                if inVector.size == np.size(inVector, 1):
-                    inVector = inVector.transpose()
-
+        # Handling for row vectors (convert to column vectors)
+        passedRowTest = False
+        try:
+            # If all entries are oriented along the horizontal axis
+            if inVector.size == np.size(inVector, 1):
+                # Convert row vectors to column vectors
+                if self.inSize != 1:
+                    if inVector.size == np.size(inVector, 1):
+                        inVector = inVector.T
+                        passedRowTest = True
+        except:
+            passedRowTest = True
+            pass
+        
+        # Check if the input vector is indeed a column vector
+        if inVector.size == np.size(inVector, 0) and passedRowTest:
             # Vector has the right column vector shape -- now check for correct size
             if inVector.size == self.inSize:
                 # Vector is of the right shape and size so continue
@@ -249,6 +260,10 @@ class AdvNet:
                 # Go through all of weights calculating the next vector
                 ## in vector, w1 vec, w2 vec, ... out vec
                 calcVec = inVector # Start the calcVector with the given input vector
+                
+                # Triple-checking size throughout forward prop.
+                calcVec = calcVec.reshape(calcVec.size, 1)
+
                 for i, weights in enumerate(self.weights):
                     # Forward propogation
                     calcVec = sum(calcVec*weights)
@@ -260,19 +275,24 @@ class AdvNet:
                     if hiddenFunction == 'NONE':
                         pass
                     elif hiddenFunction == 'ELU':
-                        calcVec[calcVec < -0.4] = 0
+                        calcVec = 0.4 * (2.7182818284**calcVec - 1)
                     elif hiddenFunction == 'ATAN':
-                        calcVec[calcVec < -1] = -1
-                        calcVec[calcVec > 1]  = 1
+                        calcVec = np.arctan(calcVec)
                     elif hiddenFunction == 'RELU':
                         calcVec[calcVec < 0] = 0
+                    elif hiddenFunction == 'SIG':
+                        e_p = 2.7182818284**calcVec
+                        e_n = 2.7182818284**(-calcVec)
+                        calcVec = ((e_p - e_n) / (e_p + e_n)) + 1
+                    elif hiddenFunction == 'EXP':
+                        calcVec[calcVec < -0.4] = 0
                     else:
                         raise ValueError("Given hidden function is not of the avalible types!")
 
                     # Triple-checking size throughout forward prop.
                     calcVec = calcVec.reshape(calcVec.size, 1)
 
-                # Handling for single-number outputs (free it from the vector at the end)
+                # Handling for single-number outputs (free it from the array at the end)
                 if self.outSize == 1:
                     calcVec = calcVec[0][0]
 
@@ -318,31 +338,35 @@ class AdvNet:
         
         1 - Name
         - Type == String
-        
         """
+
+        # Check that the directory exists
+        DIR = "MCNetData"
+        if not os.path.exists(DIR):
+            os.makedirs(DIR)
+
         # Save the various Characteristics and weights of the NN to load later
-        name = str(name)
-        np.savetxt(f"NN_{name}_Size", self.sizes)
+        # name = str(name)
+        np.savetxt(f"{DIR}/NN_{name}_Size", self.sizes)
         for i in range(len(self.sizes) - 1):
             # Redundant save cycles in case of 'onedrive' situations
             ## Limit save tries to 10 times, if thats not working
             ## something else is likely wrong that this won't fix
             for tries in range(10):
                 try:
-                    np.savetxt(f"NN_{name}_Weights{i+1}", self.weights[i])
+                    np.savetxt(f"{DIR}/NN_{name}_Weights{i+1}", self.weights[i])
                     # if made this far, it successfully saved so break the loop
                     break
                 except:
                     # Something didn't work, try again
-                    # BTW a 'onedrive' issue is when the local net files
+                    # BTW a 'onedrive issue' is when the local net files
                     # are saved on some cloud-like thing and if saved or
                     # accessed too quickly, will throw a 'permission denied'
                     # error that can be avoided if tried again with a short
                     # time delay.
                     continue
         
-        
-        # # Convert activation data from list to numerical array
+        # Convert activation data from list to numerical array
         data = []
         for function in self.activationFunction:
             # Conversions
@@ -360,14 +384,17 @@ class AdvNet:
         # Save the activation function information
         for tries in range(10):
             try:
-                np.savetxt(f"NN_{name}_Activations", np.array(data))
+                np.savetxt(f"{DIR}/NN_{name}_Activations", np.array(data))
                 break
             except:
                 continue
 
+    def ApplyTweak(self, dW):
+        for i, dWi in enumerate(dW):
+            self.weights[i] = self.weights[i] + dWi
 
 ## External Functions ##
-def LoadNet(name):
+def LoadNet(name:str):
     """
     Returns a nerual net object with the loaded characteristics from the
     given nickname. 
@@ -376,13 +403,22 @@ def LoadNet(name):
 
     1 - Name
     - Type == String
-
     """
+
+    # Check that the mcnet data directory exsits
+    # If not, make the folder and raise error
+    DIR = "MCNetData"
+    if not os.path.exists(DIR):
+        os.makedirs(DIR)
+        raise NotADirectoryError(
+            "The net data folder (MCNetData) was not found! It is now made; resave or move existing nets into this folder."
+            )
+
     # Load the various Characteristics and weights of the NN
-    name = str(name)
-    for tries in range(10): ## Redundant loading loop, reference SaveNN on 'onedrive issue'
+    # name = str(name)
+    for _ in range(10): ## Redundant loading loop, reference SaveNN on 'onedrive issue'
         try:
-            sizes = list(np.loadtxt(f"NN_{name}_Size"))
+            sizes = list(np.loadtxt(f"{DIR}/NN_{name}_Size"))
             break
         except:
             continue
@@ -392,9 +428,9 @@ def LoadNet(name):
     outSize = int(sizes[-1])
 
     # Load in the activation function data
-    for tries in range(10): ## Redundant loading loop, reference SaveNN on 'onedrive issue'
+    for _ in range(10): ## Redundant loading loop, reference SaveNN on 'onedrive issue'
         try:
-            activations = list(np.loadtxt(f"NN_{name}_Activations"))
+            activations = list(np.loadtxt(f"{DIR}/NN_{name}_Activations", ndmin=1))
             break
         except:
             continue
@@ -419,9 +455,9 @@ def LoadNet(name):
 
     # Load in the saved net weights
     for i in range(len(net.sizes) - 1):
-        for tries in range(10): ## Redundant loading loop, reference SaveNN on 'onedrive issue'
+        for _ in range(10): ## Redundant loading loop, reference SaveNN on 'onedrive issue'
             try:
-                weights = np.loadtxt(f"NN_{name}_Weights{i+1}")
+                weights = np.loadtxt(f"{DIR}/NN_{name}_Weights{i+1}")
                 break
             except:
                 continue
@@ -601,7 +637,7 @@ def Extend(baseNet:AdvNet, d_height:int, imputeType:str = "zeros"):
     # Finish
     return net
 
-def netMetrics(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, returnAll:bool = False):
+def netMetrics(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, returnAll:bool = False, method:str = 'r2'):
     """
     Returns the nets R^2 value for the given x input data and y validation data.
 
@@ -612,28 +648,32 @@ def netMetrics(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, returnAll:bool = Fa
 
     # Get predictions
     yHatList = Forecast(net, xArr, plotResults=False)
+    # try:
+    #     sizeY = np.size(yArr, axis=1)
+    # except:
+    #     sizeY = 1
+    # sizeX = np.size(yArr, axis=0)
 
-    ## Errors ##
-    # Residual
-    try:
-        sizeY = np.size(yArr, axis=1)
-    except:
-        sizeY = 1
-    sizeX = np.size(yArr, axis=0)
-    SSres = np.sum((np.array(yHatList).reshape(sizeY, sizeX) - yArr) ** 2)
+    ## R^2 Method ##
+    if method == 'r2':
+        # Residual.reshape(sizeY, sizeX)
+        SSres = np.sum((np.array(yHatList) - yArr) ** 2)
 
-    # Regression
-    yMean = np.mean(yArr)
-    SSreg = np.sum((np.array(yHatList) - yMean) ** 2)
+        # Regression
+        yMean = np.mean(yArr)
+        SSreg = np.sum((np.array(yHatList) - yMean) ** 2)
 
-    # Total
-    SStot = SSres + SSreg
+        # Total
+        SStot = SSres + SSreg
 
-    # R2-D2 Value
-    if not returnAll:
-        return SSreg / SStot
-    else:
-        return SSreg / SStot, SSres, SSreg, SStot
+        # R2-D2 Value
+        if not returnAll:
+            return SSreg / SStot
+        else:
+            return SSreg / SStot, SSres, SSreg, SStot
+        
+    elif method == 'sse':
+        return 1 / sum(abs(np.array(yHatList).T - yArr))
 
 def genTrain(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, iterations:int = 1000, 
                     batchSize:int = 0, gamma:int = 50, weightSelection:str = None, 
