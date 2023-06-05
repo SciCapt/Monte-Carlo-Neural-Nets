@@ -6,7 +6,7 @@ A package made to see how well a basic architecture of neural nets could be. The
 
 The basic operation of these nets is that they can be trained to some data set (or some score in an unsupervised case) by randomly 'tweaking' the different parameter weight values within the net. These weight values are clipped to be restrained to the range [-1, 1].
 
-If training a net in a supervised fashion, the training function, GenTrain(), iteratively creates 'generations' or 'batches' of nets from some parent net, and uses the one with the most improvement as the next parent net.
+If training a net in a supervised fashion, the training function, GenTrain(), iteratively creates 'generations' or 'batches' of nets from some parent net, and uses the one with the most improvement as the next parent net. This effectively creates a training for the nets via gradient decent.
 
 This is on PyPI, view the latest release at:
 https://pypi.org/project/mcnets/
@@ -41,10 +41,13 @@ xThin, yThin, xIndicies = thinData(inData, valData, 10)
 net, R2 = genTrain(net, xThin, yThin, R2Goal = 1)
 predictions = Forecast(net, inData, valData)
 ```
-Using a straight forward method like this (essentially using the net as some functions f(x)) didn't work well before V0.2.1. However presently, being able to customize the activation function used at each layer space allows for this to now be possible and work very well (R^2 > 0.999 typically in this code example).
+Using a straight forward method like this (essentially using the net as some functions f(x)) didn't work well before V0.2.1. However presently, being able to customize the activation function used at each layer space allows for this to now be possible and work very well (R^2 > 0.999 typically for the training data points in this code example).
 
-## Curve Fitting Examples
-### Old Method
+
+## Old Curve Fitting Examples
+Whole the quickstart above shows the current ability of nets to converge onto a small set of data points, up to 1000 points have been done in under 10 seconds. There were a few versions before this, however. Below are some examples of the limited training possible before, shown purely for comparison to what is now possible.
+
+### First (choppy) Method
 The original method I used these nets for curve fitting is by taking advantage of the non-linear behavior of the RELU calculation. At the time, I also had an ELU option implemented, but it didn't give me any useful fit back. This method worked, and did allow the net to have some "intelligence" to fit to the given data to, but it was very choppy at best, and required massive nets to do an okay-ish job. Below is a "short" training session example of what it gives.
 
 Training Details:
@@ -55,7 +58,7 @@ Result:
 
 ![](Examples/ghFit1b.png)
 
-### New Method (fitting slopes using ELU)
+### Second Method (fitting slopes using ELU)
 The new method still makes use of the AdvNet, but instead of directly using the output as some sort of "y" value, the output is used a a sort of rough derivative estimator (ie. a slope) that gets added to the previous point. By finding the points this way, using the ELU hidden function, much nicer results can be generated. Also importantly, note the much smaller net and training time as compared to above.
 
 Training Details:
