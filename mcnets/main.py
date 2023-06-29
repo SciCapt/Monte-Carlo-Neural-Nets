@@ -2,6 +2,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import textwrap as txt
 import os
+from time import perf_counter as pc
 
 class AdvNet:
     ## Default Functions ## 
@@ -24,12 +25,14 @@ class AdvNet:
         - Range == (0, inf]
 
         4 - activations
-        - Possible Values: "NONE", "ELU", "ATAN", "RELU", "SIG"
-            - NONE: No applied function
+        - Possible Values: "lin", "elu", "atan", "relu", "sig", "resu", "resu2"
+            - LIN: No applied function (linear)
             - ELU: Exponential up to x=0, then uses y=x
             - ATAN: Uses arctan(x)
             - RELU: max(x, 0)
             - SIG: Sigmoid function
+            - RESU: Experimental, applies |sin(x)|*x
+            - RESU2: Experimental, applies max(|sin(x)|*x, 0)
         - A list of different functions per layer can be given, otherwise, all calculation
           steps will use the single given activation function.
         - Examples:
@@ -95,34 +98,51 @@ class AdvNet:
                 raise ValueError(f"Not enough activation functions provided! ({LA} given, {LW} required)")
             elif LA > LW:
                 raise ValueError(f"Too many activation functions provided! ({LA} given, {LW} required)")
+            
+        # Force upper case for activation functions
+        # (allows giving them as lower case/whatever when constructed)
+        self.activationFunction = [i.upper() for i in self.activationFunction]
+            
+        # Test Calculation Time (for __str__)
+        I = 2 # Do just 2 iterations
+        t1 = pc()
+        for i in range(I):
+            self.Calculate(np.ones((self.inSize, 1)))
+        t2 = pc()
+        self.speed = format((t2-t1)/I, ".2e")
 
     def __str__(self):
-        # String Forming and formating
+        # Resulting string dimensions/title
         strlen = 64
         l1 = f"="
         l2 = f"Neural Net Characteristics:"
 
+        # Show the layer heights of the net
         l3 = f"1. Layer Sizes = {self.sizes}"
         l3 = txt.fill(l3, strlen-2)
 
+        # Get and show the medians weight values within the weight arrays
         weightMedians = []
         for weights in self.weights:
             weightMedians.append(round(np.median(weights), 2))
         l4 = f"2. Weight Medians = {weightMedians}"
         l4 = txt.fill(l4, strlen-2)
 
+        # Show the number of paramaters that make up the net
         l6 = f"3. Number of Parameters: {self.parameters}"
 
+        # Show activation functions and order
         l7a = f"4. Activation Functions: {self.activationFunction}"
         l7a = txt.fill(l7a, strlen-2)
-
-        # l7b = f"{self.activationFunction}"
-        l5 = f"="
+        
+        # Show the calculation time
+        l8 = f"5. Calculation Time: ~{self.speed}"
+        l8 = txt.fill(l8, strlen-2)
 
         # Resulting String
         full = (l1*strlen + '\n' + l2.center(strlen, ' ') + '\n' + l3 + 
                 '\n' + l4 + '\n' + l6 + '\n' + 
-                l7a + '\n' + l5*strlen)
+                l7a + '\n' + l8 + '\n' + l1*strlen)
         return full
 
     ## Internal Functions ##
@@ -212,7 +232,7 @@ class AdvNet:
         # for i in range(len(self.biases)):
         #     self.biases[i] = np.clip(self.biases[i] + 2*Amplitude*(np.random.rand(self.biases[i].size, 1) - 0.5), -5, 5)
 
-    def Calculate(self, inVector):
+    def Calculate(self, inVector, useFast:bool = False):
         """
         Returns the neural net's calculation for a given input vector. If the net used has an input size
         of one, a single float value can be given (array type not required).
@@ -224,41 +244,62 @@ class AdvNet:
         - Size == (netInputCount, 1) or (1, netInputCount)
         - Note: 
             - If the net input size is 1, then a float can be given and a vector form is not required.
+
+        2 - useFast
+        - Type == Bool
+        - Usage:
+            - Determines whether or not fastCalc is used over Calculate. This can bring the
+              calculation speed down to around 40-70% of the otherwise default calculation
+              time, but minimal checks of the given data are done.
+            - If you are sure the given inVector data is correct, then you can use this
+              fast-calc setting, otherwise use caution as you will not receive useful 
+              information about what might go wrong during the calculation.
         """  
+        # Apply fast calculation mode if requested
+        if useFast:
+            return fastCalc(self, inVector)
 
         # Handling if a single number/float was given not in an array form
-        try:
-            # Test if a vector form was given
-            test = inVector.size
-        except:
-            # Not a vector -- check that net input size is one to confirm a single value works
+        if type(inVector) != np.ndarray:
             if self.inSize == 1:
                 inVector = np.array(inVector).reshape(1, 1)
             else:
-                raise ValueError(f"Net input size of 1 expected, got {self.inSize} instead. It's also possible the inVector is simply not a numpy array/vector")
+                raise ValueError(f"Net input size of 1 expected, got {self.inSize} instead")
             
+        # Check for correct shape (x, 1) or (1, x)
+        m1 = np.size(inVector, axis=0)
+        try:
+            m2 = np.size(inVector, axis=1)
+        except:
+            m2 = 0
+        if m1*m2 == m1 or m1*m2 == m2:
+            # One of the dimensions is one, so the input is indeed a vector
+            pass
+        else:
+            # The input is not a vector but instead an array/matrix
+            raise ValueError(f"Expected inVector of size {(self.inSize, 1)} or {(1, self.inSize)}, got {(np.size(inVector, axis=0), np.size(inVector, axis=1))})")
+
         # Handling for row vectors (convert to column vectors)
         passedRowTest = False
-        try:
-            # If all entries are oriented along the horizontal axis
-            if inVector.size == np.size(inVector, 1):
-                # Convert row vectors to column vectors
-                if self.inSize != 1:
-                    if inVector.size == np.size(inVector, 1):
-                        inVector = inVector.T
-                        passedRowTest = True
-        except:
+        if inVector.size == np.size(inVector, axis=0): # Check if already correct form
             passedRowTest = True
-            pass
+        elif inVector.size == np.size(inVector, axis=1): # If all entries are oriented along the horizontal axis
+            # Convert row vectors to column vectors
+            if self.inSize != 1:
+                if inVector.size == np.size(inVector, 1):
+                    inVector = inVector.T
+                    passedRowTest = True
+            else:
+                # Just a single value so continue
+                passedRowTest = True
         
-        # Check if the input vector is indeed a column vector
-        if inVector.size == np.size(inVector, 0) and passedRowTest:
+        # Calculate if the input vector is indeed a column vector
+        if inVector.size == np.size(inVector, axis=0) and passedRowTest:
             # Vector has the right column vector shape -- now check for correct size
             if inVector.size == self.inSize:
                 # Vector is of the right shape and size so continue
 
                 # Go through all of weights calculating the next vector
-                ## in vector, w1 vec, w2 vec, ... out vec
                 calcVec = inVector # Start the calcVector with the given input vector
                 
                 # Triple-checking size throughout forward prop.
@@ -272,22 +313,7 @@ class AdvNet:
                     hiddenFunction = self.activationFunction[i]
 
                     # Apply the activation function
-                    if hiddenFunction == 'NONE':
-                        pass
-                    elif hiddenFunction == 'ELU':
-                        calcVec = 0.4 * (2.7182818284**calcVec - 1)
-                    elif hiddenFunction == 'ATAN':
-                        calcVec = np.arctan(calcVec)
-                    elif hiddenFunction == 'RELU':
-                        calcVec[calcVec < 0] = 0
-                    elif hiddenFunction == 'SIG':
-                        e_p = 2.7182818284**calcVec
-                        e_n = 2.7182818284**(-calcVec)
-                        calcVec = ((e_p - e_n) / (e_p + e_n)) + 1
-                    elif hiddenFunction == 'EXP':
-                        calcVec[calcVec < -0.4] = 0
-                    else:
-                        raise ValueError("Given hidden function is not of the avalible types!")
+                    calcVec = applyActi(calcVec, hiddenFunction)
 
                     # Triple-checking size throughout forward prop.
                     calcVec = calcVec.reshape(calcVec.size, 1)
@@ -301,6 +327,8 @@ class AdvNet:
             # Vector is not of the correct shape for the used neural net
             else:
                 raise ValueError(f"inVector size ({inVector.size}) does not match the net input size ({self.inSize})")
+        else:
+            raise RuntimeError("Failed to enter Calculation loop! (This shouldn't have happened)")
 
     def CopyNet(self):
         """
@@ -370,7 +398,7 @@ class AdvNet:
         data = []
         for function in self.activationFunction:
             # Conversions
-            if function == "NONE":
+            if function == "LIN":
                 data.append(0)
             elif function == "RELU":
                 data.append(1)
@@ -393,7 +421,7 @@ class AdvNet:
         for i, dWi in enumerate(dW):
             self.weights[i] = self.weights[i] + dWi
 
-## External Functions ##
+## External Net Functions ##
 def LoadNet(name:str):
     """
     Returns a nerual net object with the loaded characteristics from the
@@ -440,7 +468,7 @@ def LoadNet(name:str):
     for function in activations:
         # Conversions
         if function == 0:
-            strActivations.append("NONE")
+            strActivations.append("LIN")
         elif function == 1:
             strActivations.append("RELU")
         elif function == 2:
@@ -448,7 +476,7 @@ def LoadNet(name:str):
         elif function == 3:
             strActivations.append("ATAN")
         else:
-            strActivations.append("NONE")
+            strActivations.append("LIN")
 
     # From the size, construct the net frame
     net = AdvNet(inSize, hiddenSize, outSize, strActivations)
@@ -467,7 +495,7 @@ def LoadNet(name:str):
     # Return the generated neural net
     return net
 
-def Forecast(Net, inputData, comparisonData=[], plotResults=True):
+def Forecast(Net, inputData, comparisonData=[], plotResults=True, useFast:bool=False):
     """
     Test a net against a series of input values to get its current predictions which
     is then returned. Additionally, the predictions are plotted (by default) along
@@ -550,7 +578,7 @@ def Forecast(Net, inputData, comparisonData=[], plotResults=True):
             invec = np.array(xData[i]).reshape(1,1)
 
         # Get net prediciton
-        val = net.Calculate(invec)
+        val = net.Calculate(invec, useFast=useFast)
         predictions.append(val)
 
         # Add first type of net output to plot for later
@@ -637,7 +665,8 @@ def Extend(baseNet:AdvNet, d_height:int, imputeType:str = "zeros"):
     # Finish
     return net
 
-def netMetrics(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, returnAll:bool = False, method:str = 'r2'):
+def netMetrics(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, returnAll:bool = False, 
+               method:str = 'r2', useFast:bool = False):
     """
     Returns the nets R^2 value for the given x input data and y validation data.
 
@@ -647,7 +676,7 @@ def netMetrics(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, returnAll:bool = Fa
     """
 
     # Get predictions
-    yHatList = Forecast(net, xArr, plotResults=False)
+    yHatList = Forecast(net, xArr, plotResults=False, useFast=useFast)
     # try:
     #     sizeY = np.size(yArr, axis=1)
     # except:
@@ -677,7 +706,7 @@ def netMetrics(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, returnAll:bool = Fa
 
 def genTrain(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, iterations:int = 1000, 
                     batchSize:int = 0, gamma:int = 50, weightSelection:str = None, 
-                    R2Goal = 0.999, Silent:bool = False):
+                    R2Goal = 0.999, Silent:bool = False, useFast:bool = False):
     """
     Returns a net and its R^2 value relative to the given X and Y data.
     
@@ -725,7 +754,7 @@ def genTrain(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, iterations:int = 1000
         print("A data type is not correct")
 
     # Get inital accuracy
-    currentR2 = netMetrics(net, xArr, yArr)
+    currentR2 = netMetrics(net, xArr, yArr, useFast=useFast)
 
     # Generational Training method
     for I in range(iterations):
@@ -756,7 +785,7 @@ def genTrain(net:AdvNet, xArr:np.ndarray, yArr:np.ndarray, iterations:int = 1000
         # Get the offspring's scores
         newNetScores = []
         for mutNet in testNets:
-            newR2 = netMetrics(mutNet, xArr, yArr)
+            newR2 = netMetrics(mutNet, xArr, yArr, useFast=useFast)
             newNetScores.append(newR2)
 
         # See if the best score is an improvement
@@ -845,7 +874,84 @@ def thinData(xData, yData, numPoints:int):
 
     # Finish
     return np.array(xThinData), np.array(yThinData), np.array(xPlotData)
-   
+
+
+## Helper/Smol Functions ##
+def applyActi(calcVec:np.ndarray, activationFunction:str):
+    """Applies an activation function to the given vector/array of data in calcVec."""
+
+    # Some idiot proofing (i should put this in more places)
+    activationFunction = activationFunction.upper()
+
+    # Activation function definitions tree
+    if activationFunction == 'LIN':
+        pass
+
+    elif activationFunction == 'ELU':
+        calcVec = 0.4 * (2.7182818284**calcVec - 1)
+
+    elif activationFunction == 'ATAN':
+        calcVec = np.arctan(calcVec)
+
+    elif activationFunction == 'RELU':
+        calcVec[calcVec < 0] = 0
+
+    elif activationFunction == 'RESU':
+        # calcVec[calcVec < 0] = 0
+        calcVec = abs(np.sin(calcVec))*calcVec
+
+    elif activationFunction == 'RESU2':
+        calcVec[calcVec < 0] = 0
+        calcVec = abs(np.sin(calcVec))*calcVec
+
+    elif activationFunction == 'SIG':
+        e_p = np.exp(calcVec)
+        e_n = np.exp(-calcVec)
+        calcVec = ((e_p - e_n) / (e_p + e_n)) + 1
+
+    elif activationFunction == 'EXP':
+        calcVec[calcVec < -0.4] = 0
+
+    else:
+        raise ValueError("Given hidden function is not of the avalible types!")
+
+    # Finish
+    return calcVec
+
+def fastCalc(net:AdvNet, inVector:np.ndarray):
+    """
+    ### EXPERIMENTAL ###
+    Mostly benefits smaller nets, especially with less than a few layers.
+    
+    By voiding data shape checks, this is the equivalent of .Calculate() for a net, but
+    takes less time. If you're using this, that means you are confident the inVector 
+    data you are using is correct, and/or you do not need the many error checks that 
+    .Calculate has.
+
+    This function still supports single float inputs/outputs, just as .Calculate does.
+    """
+    # Basic check - Shape vector to what it should be
+    # If this doesn't work, sounds like a you problem :P
+    inVector = inVector.reshape((net.inSize, 1))
+
+    # Possible fast calculations
+    if net.sizes[0] == 1 and len(net.sizes) == 2: # ~45% of regular calc time
+        inVector = applyActi(inVector*net.weights[0], net.activationFunction[0])
+
+    else:   # ~73% of regular calc time
+        for i in range(len(net.sizes)-1):
+            if i != 0:
+                inVector = inVector.reshape((inVector.size, 1))
+            inVector = applyActi(sum(inVector*net.weights[i]), net.activationFunction[i])
+
+    # Return the vector shaped as a column vector
+    sz = inVector.size
+    if sz == 1:     # if a single number
+        return inVector[0]
+    else:           # all other vectors
+        inVector = inVector.reshape(inVector.size, 1)
+        return inVector
+
 
 ## Old / Depreceated ##
 def Train(Net, inputData, yData, startingTweakAmp=0.8, 
@@ -903,7 +1009,7 @@ def Train(Net, inputData, yData, startingTweakAmp=0.8,
 
     8 - hiddenFunc
     - Type == String
-    - Decides what hidden-layer processing should be used. 'NONE' simply passes
+    - Decides what hidden-layer processing should be used. 'LIN' simply passes
     through each summed up vector to the next layer with no processing. The default,
     'ELU', uses the function max(val, 0) before passing on to the next hidden layer.
 
@@ -1184,7 +1290,7 @@ def CycleTrain(Net, inputData, yData, startingTweakAmp=0.8,
 
     8 - hiddenFnc
     - Type == String
-    - Decides what hidden-layer processing should be used. 'NONE' simply passes
+    - Decides what hidden-layer processing should be used. 'LIN' simply passes
     through each summed up vector to the next layer with no processing. The default,
     'ELU', uses the function max(val, 0) before passing on to the next hidden layer.
 
