@@ -13,33 +13,50 @@ https://pypi.org/project/mcnets/
 
 
 ## Quickstart
-### Example Code (Fit to f(x) = ln(x))
-Since V0.2.0, the activation functions can be fully customized per layer in the created nets. This allows for very easy curve fitting applications such as the example below. Note that the section "Curve Fitting Examples" uses two outdated methods relative the this code example, but are kept to show progress that has been made.
+### Example Code (Curve Fitting to a "jumpy" equation
+As of the full release V1.0.0, the training method for AdvNets has *greatly* improved which the below code demonstrates. If you wanted to try the previous training method, use the "genTrain()" function. Using the below function/data, the genTrain training method achieved an R2 of about 0.4 at best -- the new training method can get an R2 of above 0.95 with similar training times. Note that the section "Curve Fitting Examples" uses two outdated methods relative the this code example, but are kept to show progress that has been made.
 ```
-from mcnets import *
-from math import log
+import mcnets as mc
 import numpy as np
+import matplotlib.pyplot as plt
 
-# Make a neural net 
-## Layer heights of 1, 10, 10 and 1
-## 3 Spaces/Activation Functions: first ELU, then ATAN, then NONE (linear)
-net = AdvNet(1, [10, 10], 1, ["ELU", "ATAN", "NONE"])
+# Make a net with 4 inputs, 1 hidden layer, and 1 output
+net = mc.AdvNet(4, [25], 1, ["relu", "lin"])
 
-# Show net characteristics
-print(net)
+# Make a set of data points (that looks pseudo-random)
+numSamples = 100
+allX = np.random.rand(numSamples, 4)
+allY = []
+for xi in allX:
+    x1 = xi[0]
+    x2 = xi[1]
+    x3 = xi[2]
+    x4 = xi[3]
+    y = x1 + x2**2 - 3*x3 + x4/4
+    allY.append(y)
+allY = np.array(allY)
 
-# Make data
-xTrain = [*range(30)]
-yTrain = [log(x + 1) for x in xTrain]
-inData = np.array(xTrain)
-valData = np.array(yTrain)
+# Get net initial (random) ability
+initialR2 = mc.netMetrics(net, allX, allY)
 
-# Thin data for training data (10 points)
-xThin, yThin, xIndicies = thinData(inData, valData, 10)
+# Train and save the new net
+net = net.Train(allX, allY, verbose=True)
 
-# Train the net to the data and display the results
-net, R2 = genTrain(net, xThin, yThin, R2Goal = 1)
-predictions = Forecast(net, inData, valData)
+# Get Accuracy of net net
+finalR2 = mc.netMetrics(net, allX, allY)
+
+# Get trained net predictions (to plot)
+predictions = mc.Forecast(net, allX, plotResults=False, useFast=True)
+
+# Plot/Print results
+print(f"Initial R2 = {initialR2} | Final R2 = {finalR2}")
+
+plt.plot(predictions)
+plt.plot(allY, "--")
+plt.legend(["Predictions", "True Data"])
+plt.grid(True)
+plt.title("Model Predictions vs. True Data")
+plt.show()
 ```
 Using a straight forward method like this (essentially using the net as some functions f(x)) didn't work well before V0.2.1. However presently, being able to customize the activation function used at each layer space allows for this to now be possible and work very well (R^2 > 0.999 typically for the training data points in this code example).
 
