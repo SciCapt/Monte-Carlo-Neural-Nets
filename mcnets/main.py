@@ -3,6 +3,7 @@ import numpy as np
 import textwrap as txt
 import os
 from time import perf_counter as pc
+import random as rn
 
 class AdvNet:
     ## Default Functions ## 
@@ -420,6 +421,81 @@ class AdvNet:
     def ApplyTweak(self, dW):
         for i, dWi in enumerate(dW):
             self.weights[i] = self.weights[i] + dWi
+
+    def Train(self, XData, YData, Ieta:int = 5, Gamma:float = 2, Beta:int = 12,
+              verbose:bool = True, useFast:bool = True):
+        """
+        Returns a trained version of the net used. Takes a slice of data to
+        use for fitting a test net using genTrain then tests/confirms its
+        predictive power using the remaining data (from XData & YData).
+
+        1 - Ieta
+            - Number of iterations to use for training the net
+        
+        2 - Gamma
+            - Weight tweak amplitude decay factor; every Gamma # of
+              iterations, the tweak ampltiude will be halved and the
+              training "precision" will be doubled (but will look over
+              a smaller possible range of values for the net's weights!)
+
+        3 - Beta
+            - Number of test nets to make for each batch, every iteration
+
+        4 - Verbose
+            - Decides if the current iteration number and best R2 score
+              are printed throughout the training process
+
+        5 - useFase
+            - Decides if the 'fast' method is used for .Calculate() -- 
+              The only major effect of this is the lack of error reporting
+              when the net is making a calculation. If you suspect the 
+              data arrays aren't correctly oriented then turn this to false
+              to assist in error checking            
+        """
+        
+        # Get initial score
+        bestAverageScore = netMetrics(self, XData, YData, useFast=useFast)
+
+        # Make train/test split
+        xTrain, yTrain, xTest, yTest = TTSplit(XData, YData, percentTrain=70)
+        bestNet = self
+        for Itr in range(Ieta):
+            # Get current tweak amplitude
+            Tau = 2 ** (-Itr / Gamma)
+
+            # Make test batch
+            testNets = []
+            for B in range(Beta):
+                net = self.CopyNet()
+                net.TweakWeights(Tau)
+                testNets.append(net)
+
+            # Test Test Batch
+            for batchNet in testNets:
+                # Do small fit to train data
+                batchNet, R2_f = genTrain(batchNet, xTrain, yTrain, 3, 8, 1, Silent=True, useFast=useFast)
+
+                # Test net on test data
+                R2_p = netMetrics(batchNet, xTest, yTest, useFast=useFast)
+                
+                # Get average score
+                avgScore = (R2_f + R2_p) / 2
+
+                # Check for improvement
+                if avgScore > bestAverageScore:
+                    bestNet = batchNet.CopyNet()
+                    bestAverageScore = avgScore
+                    if verbose:
+                        print(f"Iteration #{Itr+1} | Best Score = {bestAverageScore}          ", end='\r')
+
+            # Update status
+            if verbose:
+                print(f"Iteration #{Itr+1} | Best Score = {bestAverageScore}          ", end='\r')
+
+        # Final printout
+        if verbose:
+            print(f"Iteration #{Itr+1} | Best Score = {bestAverageScore}          ")
+        return bestNet
 
 ## External Net Functions ##
 def LoadNet(name:str):
@@ -875,6 +951,72 @@ def thinData(xData, yData, numPoints:int):
     # Finish
     return np.array(xThinData), np.array(yThinData), np.array(xPlotData)
 
+def TTSplit(Xdata, Ydata, percentTrain:float = 69):
+    """Randomly splits the full data into a set of training and
+    testing data for prediciton power evaluation.
+    
+    1. percentTrain
+        - sets the amount of data given back for training
+    data, while the rest is sent into the testing data set
+    """
+
+    # Defaults
+    sortSets = True # No need to make other method rn, sorting isn't that slow
+    xTest = []
+    yTest = []
+    xTrain = []
+    yTrain = []
+
+    # Generate the indicies used for collecting train data
+    dataLen = len(Xdata)
+    numTrainSamples = round(dataLen * percentTrain/100)
+    numTestSamples = dataLen - numTrainSamples
+    trainIndicies = rn.sample(range(dataLen), numTrainSamples)
+    if sortSets:
+        trainIndicies.sort()
+
+    # All-in-one train/test collector (sorted method)
+    if sortSets:
+        crntIndex = 0
+        while crntIndex < dataLen:
+            # Check if its a training index
+            if len(trainIndicies) >= 1:
+                if crntIndex == trainIndicies[0]:
+                    xTrain.append(Xdata[crntIndex])
+                    yTrain.append(Ydata[crntIndex])
+                    
+                    trainIndicies.pop(0)
+                    crntIndex += 1
+                # Else add to test data
+                else:
+                    xTest.append(Xdata[crntIndex])
+                    yTest.append(Ydata[crntIndex])
+
+                    crntIndex += 1
+
+            # Else add to test data
+            else:
+                xTest.append(Xdata[crntIndex])
+                yTest.append(Ydata[crntIndex])
+
+                crntIndex += 1
+
+    # Shape data lists (accoutning for 1D lists)
+    try:
+        xTrain = np.array(xTrain).reshape(numTrainSamples, np.size(Xdata, 1))
+        xTest = np.array(xTest).reshape(numTestSamples, np.size(Xdata, 1))
+    except:
+        xTrain = np.array(xTrain).reshape(numTrainSamples)
+        xTest = np.array(xTest).reshape(numTestSamples)
+    try:
+        yTrain = np.array(yTrain).reshape(numTrainSamples, np.size(Ydata, 1))
+        yTest = np.array(yTest).reshape(numTestSamples, np.size(Ydata, 1))
+    except:
+        yTrain = np.array(yTrain).reshape(numTrainSamples)
+        yTest = np.array(yTest).reshape(numTestSamples)
+
+    return xTrain, yTrain, xTest, yTest
+
 
 ## Helper/Smol Functions ##
 def applyActi(calcVec:np.ndarray, activationFunction:str):
@@ -954,7 +1096,7 @@ def fastCalc(net:AdvNet, inVector:np.ndarray):
 
 
 ## Old / Depreceated ##
-def Train(Net, inputData, yData, startingTweakAmp=0.8, 
+def OldTrain(Net, inputData, yData, startingTweakAmp=0.8, 
           plotLive=False, plotResults=False, normalizeData=False, 
           hiddenFunc="ELU", trainWeights='all', maxIterations=1000, 
           blockSize=30, Silent=False):
@@ -1326,7 +1468,7 @@ def CycleTrain(Net, inputData, yData, startingTweakAmp=0.8,
     """
 
     # Get initial Error
-    Net, bestError = Train(Net, inputData, yData, 
+    Net, bestError = OldTrain(Net, inputData, yData, 
                         startingTweakAmp=startingTweakAmp, normalizeData=normalizeData, 
                         hiddenFunc=hiddenFnc, maxIterations=1, 
                         blockSize=blockSize, Silent=True)
@@ -1336,17 +1478,17 @@ def CycleTrain(Net, inputData, yData, startingTweakAmp=0.8,
         if Silent == False:
             print(f"Starting Cycle #{cycle+1}")
         
-        Net, error = Train(Net, inputData, yData, 
+        Net, error = OldTrain(Net, inputData, yData, 
                             startingTweakAmp=startingTweakAmp, normalizeData=normalizeData, 
                             hiddenFunc=hiddenFnc, maxIterations=maxIterations, 
                             blockSize=blockSize, Silent=Silent, trainWeights=[0],
                             plotLive=plotLive, plotResults=False)
-        Net, error1 = Train(Net, inputData, yData, 
+        Net, error1 = OldTrain(Net, inputData, yData, 
                             startingTweakAmp=startingTweakAmp, normalizeData=normalizeData, 
                             hiddenFunc=hiddenFnc, maxIterations=maxIterations, 
                             blockSize=blockSize, Silent=Silent, trainWeights='middle',
                             plotLive=plotLive, plotResults=False)
-        Net, error2 = Train(Net, inputData, yData, 
+        Net, error2 = OldTrain(Net, inputData, yData, 
                             startingTweakAmp=startingTweakAmp, normalizeData=normalizeData, 
                             hiddenFunc=hiddenFnc, maxIterations=maxIterations, 
                             blockSize=blockSize, Silent=Silent, trainWeights=[-1],
