@@ -6,15 +6,12 @@ A package made to see how well a basic architecture of neural nets could be. The
 
 The basic operation of these nets is that they can be trained to some data set (or some score in an unsupervised case) by randomly 'tweaking' the different parameter weight values within the net. These weight values are clipped to be restrained to the range [-1, 1].
 
-If training a net in a supervised fashion, the training function, GenTrain(), iteratively creates 'generations' or 'batches' of nets from some parent net, and uses the one with the most improvement as the next parent net. This effectively creates a training for the nets via gradient decent.
-
 This is on PyPI, view the latest release at:
 https://pypi.org/project/mcnets/
 
-
 ## Quickstart
-### Example Code (Curve Fitting to a "jumpy" equation
-As of the full release V1.0.0, the training method for AdvNets has *greatly* improved which the below code demonstrates. If you wanted to try the previous training method, use the "genTrain()" function. Using the below function/data, the genTrain training method achieved an R2 of about 0.4 at best -- the new training method can get an R2 of above 0.95 with similar training times. Note that the section "Curve Fitting Examples" uses two outdated methods relative the this code example, but are kept to show progress that has been made.
+### Example Code (Curve Fitting to a "jumpy" equation)
+As of the full release V1.0.0, the training method for AdvNets has *greatly* improved which the below code demonstrates. If you wanted to try the previous training method, use the "genTrain()" function. Using the below function/data, the genTrain training method achieved an R2 of about 0.4 at best -- the new training method can get an R2 of above 0.95 with similar training times. Note that the section "Curve Fitting Examples" uses two outdated methods relative the this code example, but is kept to show progress that has been made.
 ```
 import mcnets as mc
 import numpy as np
@@ -58,14 +55,14 @@ plt.grid(True)
 plt.title("Model Predictions vs. True Data")
 plt.show()
 ```
-Using a straight forward method like this (essentially using the net as some functions f(x)) didn't work well before V0.2.1. However presently, being able to customize the activation function used at each layer space allows for this to now be possible and work very well (R^2 > 0.999 typically for the training data points in this code example).
+Using a straightforward method like this (essentially using the net as some functions f(x)) didn't work well before V0.2.1. However presently, being able to customize the activation function used at each layer space allows for this to now be possible and work very well (R^2 > 0.999 typically for the training data points in this code example).
 
 
 ## Old Curve Fitting Examples
-Whole the quickstart above shows the current ability of nets to converge onto a small set of data points, up to 1000 points have been done in under 10 seconds. There were a few versions before this, however. Below are some examples of the limited training possible before, shown purely for comparison to what is now possible.
+While the quickstart above shows the current ability of nets to converge onto a small set of data points, up to 1000 points have been done in under 10 seconds. There were a few versions before this, however. Below are some examples of the limited training possible before, shown purely for comparison to what is now possible.
 
 ### First (choppy) Method
-The original method I used these nets for curve fitting is by taking advantage of the non-linear behavior of the RELU calculation. At the time, I also had an ELU option implemented, but it didn't give me any useful fit back. This method worked, and did allow the net to have some "intelligence" to fit to the given data to, but it was very choppy at best, and required massive nets to do an okay-ish job. Below is a "short" training session example of what it gives.
+The original way I used these nets for curve fitting was by taking advantage of the non-linear behavior of the RELU calculation. At the time, I also had an ELU option implemented, but it didn't give me any useful fit back. This method worked and did allow the net to have some "intelligence" to fit to the given data, but it was very choppy at best and required massive nets to do an okay-ish job. Below is a "short" training session example of what it gives.
 
 Training Details:
 - Net Size = 1176 parameters
@@ -76,7 +73,7 @@ Result:
 ![](Examples/ghFit1b.png)
 
 ### Second Method (fitting slopes using ELU)
-The new method still makes use of the AdvNet, but instead of directly using the output as some sort of "y" value, the output is used a a sort of rough derivative estimator (ie. a slope) that gets added to the previous point. By finding the points this way, using the ELU hidden function, much nicer results can be generated. Also importantly, note the much smaller net and training time as compared to above.
+The new method still makes use of the AdvNet, but instead of directly using the output as some sort of "y" value, the output is used as a sort of rough derivative estimator (ie. a slope) that gets added to the previous point. By finding the points this way, using the ELU hidden function, much nicer results can be generated. Also importantly, note the much smaller net and training time as compared to above.
 
 Training Details:
 - Net Size = 312 params.
@@ -89,16 +86,16 @@ Result:
 
 ## Speed Tests
 ### Convention
-A speed test was completed on what I like to refer as 'rectangular' neural nets. This is, excluding the input and output layer sizes, each hidden layer has some size/height H and there are W layers (the net has a hidden 'width' of W). So, again excluding in/out sizes as they will be the same, the nets can be referenced as their hidden size of HxW. For example, a net with sizes 1x12x12x12x1 (in and out size of 1) as used in the above quickstart example can be thought of as a 12x3 net.
+A speed test was completed on what I like to refer to as 'rectangular' neural nets. This is, excluding the input and output layer sizes, each hidden layer has some size/height H and there are W layers (the net has a hidden 'width' of W). So, again excluding in/out sizes as they will be the same, the nets can be referenced as their hidden size of HxW. For example, a net with sizes 1x12x12x12x1 (in and out size of 1) as used in the above quickstart example can be thought of as a 12x3 net.
 
 ### Results
-Using this convention, a test was conducted on 50^2 nets, that is, with H and W ranging from 1 to 50. The test simply consisted of performing the same numerical calculation (using the .Calculate() method) 100 times with the same net. The time recorded was then the total time divided by the 100 repeats to give the average calculation time. This test was done to all of the 2500 different nets which took a few minutes as the median calculation time was about 1.2 ms. Here is the pretty heat map that sums up the results better than the entirety of this paragraph if I kept rambling:
+Using this convention, a test was conducted on 50^2 nets, that is, with H and W ranging from 1 to 50. The test simply consisted of performing the same numerical calculation (using the .Calculate() method) 100 times with the same net. The time recorded was then the total time divided by the 100 repeats to give the average calculation time. This test was done on all of the 2500 different nets which took a few minutes as the median calculation time was about 1.2 ms. Here is the pretty heat map that sums up the results better than the entirety of this paragraph if I kept rambling:
 
 ![](Examples/ghSpeedTest1a.png)
 
-Note that the cooler colors are faster, and the warmer colors are the slower times.
+Note that the cooler colors are faster, and the warmer colors are slower times.
 
-The most important take-away is that 'tall' and 'wide' nets of equal parameters take significantly different times. That is, having only a few hidden layers that are tall (ie. like a 12x3 net) is faster than the reverse with a similar number of parameters (ie. like a 5x13 net). It is quite worse, in fact:
+The most important takeaway is that 'tall' and 'wide' nets of equal parameters take significantly different times. That is, having only a few hidden layers that are tall (ie. like a 12x3 net) is faster than the reverse with a similar number of parameters (ie. like a 5x13 net). It is quite worse, in fact:
 
 Net 1:
 - Shape = 12x3
