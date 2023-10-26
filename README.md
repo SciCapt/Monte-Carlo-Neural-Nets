@@ -11,48 +11,54 @@ https://pypi.org/project/mcnets/
 
 ## Quickstart
 ### Example Code (Curve Fitting to a "jumpy" equation)
-As of the full release V1.0.0, the training method for AdvNets has *greatly* improved which the below code demonstrates. If you wanted to try the previous training method, use the "genTrain()" function. Using the below function/data, the genTrain training method achieved an R2 of about 0.4 at best -- the new training method can get an R2 of above 0.95 with similar training times. Note that the section "Curve Fitting Examples" uses two outdated methods relative the this code example, but is kept to show progress that has been made.
+Following the training algorithm enchancement of V1.0.0, there has been a few renamings, functions fixes, scoring function metrics improved, and more. Below is the quick start code that shows the syntax for creating a network, a few ways to write in the activation functions to be used, how to write the sizing (automatic input and output sizes to come soon), the included train-test split function, fitting the models, getting their predictions, and the plots of the resulting predictions, etc. This is most of what is needed to be able to use these networks, but there is more to show in other niche cases (examples to come later).
 ```
-import mcnets as mc
+port matplotlib.pyplot as plt
 import numpy as np
-import matplotlib.pyplot as plt
+import mcnets as mc
 
-# Make a net with 4 inputs, 1 hidden layer, and 1 output
-net = mc.AdvNet(4, [25], 1, ["relu", "lin"])
+# Data to fit to (f(x) = x^0.5)
+# You can increase the number of samples by changing the X variable
+X = np.random.rand(20)*2 # Gives domain of [0, 2)
+Y = X**0.5
 
-# Make a set of data points (that looks pseudo-random)
-numSamples = 100
-allX = np.random.rand(numSamples, 4)
-allY = []
-for xi in allX:
-    x1 = xi[0]
-    x2 = xi[1]
-    x3 = xi[2]
-    x4 = xi[3]
-    y = x1 + x2**2 - 3*x3 + x4/4
-    allY.append(y)
-allY = np.array(allY)
+# Assemble a few models to test
+net_atan  = mc.AdvNet(1, [25], 1, 'atan')
+net_lin   = mc.AdvNet(1, [25], 1)
+net_combo = mc.AdvNet(1, [25], 1, ['relu', 'elu', 'lin'])
 
-# Get net initial (random) ability
-initialR2 = mc.netMetrics(net, allX, allY)
+# An equal alternative definition for the ATAN model:
+# net_atan = AdvNet(1, [25], 1, ['atan', 'atan', 'atan'])
 
-# Train and save the new net
-net = net.Train(allX, allY, verbose=True)
+# An equal alternative definition for the linear model (lin is default):
+# net_atan = AdvNet(1, [25], 1)  
 
-# Get Accuracy of net net
-finalR2 = mc.netMetrics(net, allX, allY)
+# Train-Test Split (Taking only the train group)
+x, y, _, _ = mc.TTSplit(X, Y, percentTrain=50)
 
-# Get trained net predictions (to plot)
-predictions = mc.Forecast(net, allX, plotResults=False, useFast=True)
+# Fit the models to the training data group
+print("ATAN Model Training:")
+net_atan  = net_atan.Fit(x, y, useFast=False)
 
-# Plot/Print results
-print(f"Initial R2 = {initialR2} | Final R2 = {finalR2}")
+print("\nLinear Model Training:")
+net_lin   = net_lin.Fit(x, y)
 
-plt.plot(predictions)
-plt.plot(allY, "--")
-plt.legend(["Predictions", "True Data"])
-plt.grid(True)
-plt.title("Model Predictions vs. True Data")
+print("\nCombo Model Training")
+net_combo = net_combo.Fit(x, y)
+
+# Get the models predictions to the full data set
+ym_atan  = net_atan.Predict(X, useFast=False)
+ym_lin   = net_lin.Predict(X)
+ym_combo = net_combo.Predict(X)
+
+# Plot and compare the results of the models
+print("\nPlotted Results:")
+plt.plot(Y, 'o')
+plt.plot(ym_atan, 'r--')
+plt.plot(ym_lin, 'g--')
+plt.plot(ym_combo, 'b--')
+plt.title(f"y=x^0.5 vs Networks of Various Activation Functions")
+plt.legend(["True Data", "ATAN Model", "Linear Model", "Combo Model"])
 plt.show()
 ```
 Using a straightforward method like this (essentially using the net as some functions f(x)) didn't work well before V0.2.1. However presently, being able to customize the activation function used at each layer space allows for this to now be possible and work very well (R^2 > 0.999 typically for the training data points in this code example).
