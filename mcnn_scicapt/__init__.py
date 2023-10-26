@@ -1,1 +1,0 @@
-from mcnn_scicapt.main import *
