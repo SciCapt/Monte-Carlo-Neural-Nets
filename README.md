@@ -13,7 +13,7 @@ https://pypi.org/project/mcnets/
 ### Example Code (Curve Fitting to a "jumpy" equation)
 Following the training algorithm enchancement of V1.0.0, there has been a few renamings, functions fixes, scoring function metrics improved, and more. Below is the quick start code that shows the syntax for creating a network, a few ways to write in the activation functions to be used, how to write the sizing (automatic input and output sizes to come soon), the included train-test split function, fitting the models, getting their predictions, and the plots of the resulting predictions, etc. This is most of what is needed to be able to use these networks, but there is more to show in other niche cases (examples to come later).
 ```
-port matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import numpy as np
 import mcnets as mc
 
