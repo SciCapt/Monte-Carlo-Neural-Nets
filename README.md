@@ -61,11 +61,13 @@ plt.title(f"y=x^0.5 vs Networks of Various Activation Functions")
 plt.legend(["True Data", "ATAN Model", "Linear Model", "Combo Model"])
 plt.show()
 ```
-Using a straightforward method like this (essentially using the net as some functions f(x)) didn't work well before V0.2.1. However presently, being able to customize the activation function used at each layer space allows for this to now be possible and work very well (R^2 > 0.999 typically for the training data points in this code example).
 
+It is worth noting that before V0.2.1, directly fitting a netork to the values for curve fitting was either a nightmare or not really possible (First Method below). Now with many changes to the activations functions, net customizability, training algorithm, etc. it is quite straight forward. 
+
+Note in the example above that it is also quite easy to be able to test variations of activation functions used within a network. This allows for being able to find a model for nearly every dataset, though it can be hard to find the right/best combination sometimes (yes, this is foreshadowing to an automatic activation function combination finder I am working on presently).
 
 ## Old Curve Fitting Examples
-While the quickstart above shows the current ability of nets to converge onto a small set of data points, up to 1000 points have been done in under 10 seconds. There were a few versions before this, however. Below are some examples of the limited training possible before, shown purely for comparison to what is now possible.
+While the quickstart above shows the current ability of nets to converge onto a small set of data points, over 1000s of points have been fit to in under 10 seconds. There were a few versions before this, however. Below are some examples of the limited training possible before, shown purely for comparison to what is now possible.
 
 ### First (choppy) Method
 The original way I used these nets for curve fitting was by taking advantage of the non-linear behavior of the RELU calculation. At the time, I also had an ELU option implemented, but it didn't give me any useful fit back. This method worked and did allow the net to have some "intelligence" to fit to the given data, but it was very choppy at best and required massive nets to do an okay-ish job. Below is a "short" training session example of what it gives.
