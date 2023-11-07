@@ -2,9 +2,13 @@
 
 ## Overview / Lore
 
-A package made to see how well a basic architecture of neural nets could be. The nets can be created with custom input and output heights, as well as full customization of the hidden layers' sizes (height and count of layers) and activation functions that are applied at each space between the layers.
+A package made to see how well a basic architecture of neural nets could be. The basis of training these neural network models comes not from various gradient descent methods, but instead a unique Monte-Carlo style training optimizer.
 
-The basic operation of these nets is that they can be trained to some data set (or some score in an unsupervised case) by randomly 'tweaking' the different parameter weight values within the net. These weight values are clipped to be restrained to the range [-1, 1].
+Written fully in Python, this doesn't represent a 1-1 replacement for other common models, regressors, classifiers, etc. out there due to speed differences. However, for small data sets (About 1000s of samples or less, it depends) the primary model (MCRegressor) has a very similar speed and capability as others (such as models in SKLearn). Further, due to the training style, the networks tend to not overfit by default and seem to reliably keep their predictive power as fitting continues. 
+
+Overall this package represents a place of testing unique frameworks and ideas for Deep Learning Neural Network models. Whether you want to test a custom activation function, training method, neural network model, etc., the framework of the package allows for it. Especially considering that is what I initially used this package for, before it was uploaded as a package
+
+I will continue to try new things for this package making use of this monte-carlo training 'philosophy'. Some of the current new things I'm testing include a SUNN (Super-Unique Neural Network) model that allows for using a different activation function on every individual node, and a function that automatically finds a few optimal activation function orders for a given model and dataset.
 
 This is on PyPI, view the latest release at:
 https://pypi.org/project/mcnets/
