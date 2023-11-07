@@ -10,56 +10,84 @@ This is on PyPI, view the latest release at:
 https://pypi.org/project/mcnets/
 
 ## Quickstart
-### Example Code (Curve Fitting to f(x) = x^0.5)
-Following the training algorithm enchancement of V1.0.0, there has been a few renamings, functions fixes, scoring function metrics improved, and more. Below is the quick start code that shows the syntax for creating a network, a few ways to write in the activation functions to be used, how to write the sizing (automatic input and output sizes to come soon), the included train-test split function, fitting the models, getting their predictions, and the plots of the resulting predictions, etc. This is most of what is needed to be able to use these networks, but there is more to show in other niche cases (examples to come later).
+### Example Code (Curve Fitting to f(x) = x^0.5 - 0.75)
+Following the training algorithm enchancement of V1.0.0, there has been a few renamings, functions fixes, scoring function metrics improved, and more. Below is the quick start code that shows various syntax, equivilent statements, etc. This is most of what is needed to be able to use these networks, but there is more to show in other niche cases (I.e. the SUNN regressor that is ((I believe)) my original idea that I'm currently BETA testing).
+
+Some of the models below use possible RELU and SIG replacements, being SILU and dSILU respectively (see [Elfwing, et al.] at the end of the quick start code).
+
 ```
 import matplotlib.pyplot as plt
 import numpy as np
 import mcnets as mc
 
-# Data to fit to (f(x) = x^0.5)
+## CONTEXT ##
+# The below shows how to setup the models, fit them, and show their predictions
+# Most of this is essentially the same as other common packages out there
+# 
+# For this simple dataset, 3 models are made and fitted (to 50% of the data)
+# with the total results graphed. Note how models that use the same activation
+# for all layers (tanh model) aren't very good models. The default model (see
+# details below) tends to preform the 2nd best, and the combination model
+# using dSILU (Elfwing, et al.) tends to preform the best
+
+# Data to fit to (f(x) = x^0.5 - 0.75)
 # You can increase the number of samples by changing the X variable
-X = np.random.rand(20)*2 # Gives domain of [0, 2)
-Y = X**0.5
+X = np.random.rand(25)*2 # Gives domain of [0, 2)
+Y = X**0.5 - 0.75
 
 # Assemble a few models to test
-net_atan  = mc.AdvNet(1, [25], 1, 'atan')
-net_lin   = mc.AdvNet(1, [25], 1)
-net_combo = mc.AdvNet(1, [25], 1, ['relu', 'elu', 'lin'])
+net_tanh  = mc.MCRegressor([25], activations='tanh')         # All layers use TANH activation (this is a bad idea, limits output to [-1, 1])
+net_silu   = mc.MCRegressor([25], activations="DEFAULT")     # Default activations is lin/SILU/.../lin
+net_combo = mc.MCRegressor([25], ['relu', 'dsilu', 'lin'])    # Uses a combination of activations
 
-# An equal alternative definition for the ATAN model:
-# net_atan = AdvNet(1, [25], 1, ['atan', 'atan', 'atan'])
+# An equal alternative definition for the TANH model:
+# net_tanh = MCRegressor([25], ['tanh', 'tanh', 'tanh'])
 
-# An equal alternative definition for the linear model (lin is default):
-# net_atan = AdvNet(1, [25], 1)  
+# An equal alternative definition for the SILU model (lin/SILU/.../lin is default):
+# net_silu = MCRegressor([25])  
 
 # Train-Test Split (Taking only the train group)
-x, y, _, _ = mc.TTSplit(X, Y, percentTrain=50)
+xt, xv, yt, yv = mc.TTSplit(X, Y, percentTrain=50)
 
-# Fit the models to the training data group
-print("ATAN Model Training:")
-net_atan  = net_atan.Fit(x, y, useFast=False)
+# fit the models to the training data group
+print("TANH Model Training:")
+net_tanh.fit(xt, yt, useFast=False)
 
-print("\nLinear Model Training:")
-net_lin   = net_lin.Fit(x, y)
+print("\nDefault Model Training:")
+net_silu.fit(xt, yt)
 
 print("\nCombo Model Training")
-net_combo = net_combo.Fit(x, y)
+net_combo.fit(xt, yt)
 
 # Get the models predictions to the full data set
-ym_atan  = net_atan.Predict(X, useFast=False)
-ym_lin   = net_lin.Predict(X)
-ym_combo = net_combo.Predict(X)
+ym_tanh  = net_tanh.predict(X, useFast=False)
+ym_silu   = net_silu.predict(X)
+ym_combo = net_combo.predict(X)
 
 # Plot and compare the results of the models
 print("\nPlotted Results:")
-plt.plot(Y, 'o')
-plt.plot(ym_atan, 'r--')
-plt.plot(ym_lin, 'g--')
+plt.plot(Y, 'X')
+plt.plot(ym_tanh, 'r--')
+plt.plot(ym_silu, 'g--')
 plt.plot(ym_combo, 'b--')
-plt.title(f"y=x^0.5 vs Networks of Various Activation Functions")
-plt.legend(["True Data", "ATAN Model", "Linear Model", "Combo Model"])
+
+plt.grid(True)
+plt.title(f"y=x^0.5 vs Various Models")
+plt.legend(["True Data", "TANH Model", "Default Model", "Combo Model"])
+
 plt.show()
+
+# SILU Reference
+# 1. SILU and dSILU activation functions
+# Stefan Elfwing, Eiji Uchibe, Kenji Doya,
+# Sigmoid-weighted linear units for neural network function approximation in reinforcement learning,
+# Neural Networks,
+# Volume 107,
+# 2018,
+# Pages 3-11,
+# ISSN 0893-6080,
+# https://doi.org/10.1016/j.neunet.2017.12.012.
+# (https://www.sciencedirect.com/science/article/pii/S0893608017302976)
 ```
 
 It is worth noting that before V0.2.1, directly fitting a netork to the values for curve fitting was either a nightmare or not really possible (First Method below). Now with many changes to the activations functions, net customizability, training algorithm, etc. it is quite straight forward. 
