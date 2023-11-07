@@ -11,7 +11,7 @@ https://pypi.org/project/mcnets/
 
 ## Quickstart
 ### Example Code (Curve Fitting to f(x) = x^0.5 - 0.75)
-Following the training algorithm enchancement of V1.0.0, there has been a few renamings, functions fixes, scoring function metrics improved, and more. Below is the quick start code that shows various syntax, equivilent statements, etc. This is most of what is needed to be able to use these networks, but there is more to show in other niche cases (I.e. the SUNN regressor that is ((I believe)) my original idea that I'm currently BETA testing).
+Following the training algorithm enchancement of V1.0.0, there has been a few renamings, functions fixes, scoring function metrics improved, and more. Below is the quick start code that shows various syntax, equivalent statements, etc. This is most of what is needed to be able to use these networks, but there is more to show in other niche cases (I.e. the SUNN regressor that is ((I believe)) my original idea that I'm currently BETA testing).
 
 Some of the models below use possible RELU and SIG replacements, being SILU and dSILU respectively (see [Elfwing, et al.] at the end of the quick start code).
 
