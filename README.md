@@ -90,6 +90,12 @@ plt.show()
 # (https://www.sciencedirect.com/science/article/pii/S0893608017302976)
 ```
 
+This will output the following comparision graph:
+
+![](Examples/V140-1.png)
+
+### Current Package State
+
 It is worth noting that before V0.2.1, directly fitting a netork to the values for curve fitting was either a nightmare or not really possible (First Method below). Now with many changes to the activations functions, net customizability, training algorithm, etc. it is quite straight forward. 
 
 Note in the example above that it is also quite easy to be able to test variations of activation functions used within a network. This allows for being able to find a model for nearly every dataset, though it can be hard to find the right/best combination sometimes (yes, this is foreshadowing to an automatic activation function combination finder I am working on presently).
