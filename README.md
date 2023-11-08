@@ -1,4 +1,4 @@
-# Monte-Carlo-Neural-Nets
+# Monte-Carlo-Neural-Networks
 
 ## Overview / Lore
 
