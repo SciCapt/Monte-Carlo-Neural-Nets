@@ -36,6 +36,7 @@ import mcnets as mc
 
 # Data to fit to (f(x) = x^0.5 - 0.75)
 # You can increase the number of samples by changing the X variable
+np.random.seed(2024)
 X = np.random.rand(25)*2 # Gives domain of [0, 2)
 Y = X**0.5 - 0.75
 
