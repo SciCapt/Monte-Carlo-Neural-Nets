@@ -41,15 +41,15 @@ X = np.random.rand(25)*2 # Gives domain of [0, 2)
 Y = X**0.5 - 0.75
 
 # Assemble a few models to test
-net_tanh  = mc.MCRegressor([25], activations='tanh')         # All layers use TANH activation (this is a bad idea, limits output to [-1, 1])
-net_silu   = mc.MCRegressor([25], activations="DEFAULT")     # Default activations is lin/SILU/.../lin
-net_combo = mc.MCRegressor([25], ['relu', 'dsilu', 'lin'])    # Uses a combination of activations
+net_tanh  = mc.MCNeuralNetwork([25], activations='tanh')         # All layers use TANH activation (this is a bad idea, limits output to [-1, 1])
+net_silu   = mc.MCNeuralNetwork([25], activations="DEFAULT")     # Default activations is lin/SILU/.../lin
+net_combo = mc.MCNeuralNetwork([25], ['relu', 'dsilu', 'lin'])    # Uses a combination of activations
 
 # An equal alternative definition for the TANH model:
-# net_tanh = MCRegressor([25], ['tanh', 'tanh', 'tanh'])
+# net_tanh = MCNeuralNetwork([25], ['tanh', 'tanh', 'tanh'])
 
 # An equal alternative definition for the SILU model (lin/SILU/.../lin is default):
-# net_silu = MCRegressor([25])  
+# net_silu = MCNeuralNetwork([25])  
 
 # Train-Test Split (Taking only the train group)
 xt, xv, yt, yv = mc.TTSplit(X, Y, percentTrain=50)
