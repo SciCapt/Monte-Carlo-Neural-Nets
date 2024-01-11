@@ -97,7 +97,7 @@ plt.show()
 
 On my machines, this all runs in well under a second and will output the following comparision graph:
 
-![](Examples/V140-1.png)
+![](Examples/V150-1.png)
 
 ## Speed Tests
 ### Convention
