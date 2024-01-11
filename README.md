@@ -8,7 +8,7 @@ Written fully in Python, this doesn't represent a 1-1 replacement for other comm
 
 Overall this package represents a place of testing unique frameworks and ideas for Deep Learning Neural Network models. Whether you want to test a custom activation function, training method, neural network model, etc., the framework of the package allows for it. Especially considering that is what I initially used this package for, before it was uploaded as a package
 
-I will continue to try new things for this package making use of this monte-carlo training 'philosophy'. Some of the current new things I'm testing include a SUNN (Super-Unique Neural Network) model that allows for using a different activation function on every individual node, and a function that automatically finds a few optimal activation function orders for a given model and dataset.
+I will continue to try new things for this package making use of this monte-carlo training 'philosophy'. Some of the current new things I'm testing include a SUNN (Super-Unique Neural Network) model that allows for using a different activation function on every individual node, and a function that automatically finds a few optimal activation function orders for a given model and dataset. In the version 1.5.0, I also included a new model type 'SOUP', that is an entirely custom model architecture and can sometimes preform better in accuracy and speed than the default neural network model (MCNeuralNetwork).
 
 This is on PyPI, view the latest release at:
 https://pypi.org/project/mcnets/
