@@ -4,14 +4,15 @@ import numpy as np
 import textwrap as txt
 import os
 from time import perf_counter as pc
-import random as rn
+from random import sample
 from joblib import load, dump
+from multiprocessing import Pool
+import copy
 
-
-# Primary Regressor
-class MCRegressor:
+# Neural Network Model
+class MCNeuralNetwork:
     ## Default Functions ## 
-    def __init__(self, hiddenCounts:list = [25,], activations: any = 'DEFAULT'):
+    def __init__(self, hidden_counts:list = [100], activations: any = 'DEFAULT'):
         """
         Create a deep neural network from the given counts of neurons requested per layer. By default,
         uses a SILU activation function on all hidden layers and a Linear/Identity on the input and
@@ -19,7 +20,7 @@ class MCRegressor:
 
         ## Inputs:
 
-        - hiddenCounts
+        - hidden_counts
             - Heights of the hidden layers desired
 
         - activations
@@ -49,7 +50,7 @@ class MCRegressor:
         ```
         import mcnets as mc
 
-        model = mc.MCRegressor(hiddenCounts=[10], activations=['atan', 'relu', 'lin'])
+        model = mc.MCNeuralNetwork(hiddenCounts=[10], activations=['atan', 'relu', 'lin'])
         print(model)
 
         >>> ========================================================================
@@ -66,7 +67,7 @@ class MCRegressor:
         X = np.random.rand(100, 2)
         Y = 2*X[:, 0] - 4*X[:, 1]
 
-        model = mc.MCRegressor(hiddenCounts=[10], activations=['atan', 'relu', 'lin'])
+        model = mc.MCNeuralNetwork(hiddenCounts=[10], activations=['atan', 'relu', 'lin'])
 
         model.fit(X, Y)
 
@@ -86,12 +87,28 @@ class MCRegressor:
         # Sizes (inSize and outSize not yet initiated)
         self.inSize = -1
         self.outSize = -1
-        self.hiddenSize = hiddenCounts
-        self.sizes = [self.inSize] + hiddenCounts + [self.outSize]
+        self.hiddenSize = hidden_counts
+        self.sizes = [self.inSize] + hidden_counts + [self.outSize]
 
+        # Biases
+            ## use_biases allows for turning off a model from changing its biases
+            ## as they are all zeros at first, if this is changed before the model is fitted
+            ## this allows for using a model with now biases
+            ## 
+            ## bias_bounds allow for sneaky changing of the lower and upper bound of
+            ## the model's biases by giving it a different tuple
+        self._biases = []
+        self.use_biases = True
+        self.bias_bounds = (-2, 2)
+
+        # Other params to be generated during the first .fit call
         self.parameters = "Not yet generated; call .fit first"
         self.speed = "Not yet generated; call .fit first"
+        self.fitted = False
         self._weights = None
+
+        # Sneaky thing
+        self.weight_bounds = (-1, 1)
 
         # Construct activation functions list (if only given a single function type)
         if type(activations) == str:
@@ -179,6 +196,9 @@ class MCRegressor:
                 l7a + '\n' + l8 + '\n' + l1*strlen)
         return full
 
+    def __len__(self):
+        return len(self.sizes)
+
     ## Weights Handling ##
     @property
     def weights(self):
@@ -188,6 +208,15 @@ class MCRegressor:
     def weights(self, newWeightList):
         # Apply to main weights attribute
         self._weights = [wi.copy() for wi in newWeightList]
+
+    ## Biases Handling
+    @property
+    def biases(self):
+        return self._biases
+
+    @biases.setter
+    def biases(self, new_biases):
+        self._biases = [bi.copy() for bi in new_biases]
 
     ## Internal Functions ##
     def TweakWeights(self, Amplitude: float, Selection='all', returnChange:bool = False):
@@ -263,114 +292,51 @@ class MCRegressor:
             # Add tweaks to existing weights
             self.weights[i] += (np.random.rand(self.sizes[i], self.sizes[i+1]) - 0.5)*(2*Amplitude)
 
-            # Make sure values are in the range [-1, 1]
-            self.weights[i] = np.clip(self.weights[i], -1, 1)
+            # Make sure values are in the range [-1, 1] (default)
+            self.weights[i] = np.clip(self.weights[i], self.weight_bounds[0], self.weight_bounds[1])
+
+            # Adjust biases
+            if self.use_biases:
+                self.biases[i] += (np.random.rand(self.sizes[i+1]) - 0.5)*(2*Amplitude)
+                self.biases[i] = np.clip(self.biases[i], self.bias_bounds[0], self.bias_bounds[1])
 
         # Note change in weight array after clipping
         if returnChange:
             dW = [(self.weights[i] - Wo[i]) for i in range(len(self.weights))]
             return dW
 
-    def Calculate(self, inVector, useFast:bool = True):
+    def Calculate(self, inVector, useFast=True):
         """
-        Returns the neural net's calculation for a given input vector. If the net used has an input size
-        of one, a single float value can be given (array type not required).
-
-        ## Inputs:
+        Returns the model's prediction to a given input vector
 
         1 - inVector
-        - Type == NumPy Array
-        - Size == (netInputCount, 1) or (1, netInputCount)
-        - Note: 
-            - If the net input size is 1, then a float can be given and a vector form is not required.
+            - Sample vector of X data
+            - If the model input size is 1, then a float can be given to calculate from
 
-        2 - useFast
-        - Type == Bool
-        - Usage:
-            - Determines whether or not fastCalc is used over Calculate. This can bring the
-              calculation speed down to around 40-70% of the otherwise default calculation
-              time, but minimal checks of the given data are done.
-            - If you are sure the given inVector data is correct, then you can use this
-              fast-calc setting, otherwise use caution as you will not receive useful 
-              information about what might go wrong during the calculation.
-        """  
-        # Apply fast calculation mode if requested
-        if useFast:
-            return fastCalc(self, inVector)
+        2 - useFast (**Deprecated**)
+            - Determines if speed is favored over error handling
+            - Using this typically speeds up calculations by ~5x
+        """
 
-        # Handling if a single number/float was given not in an array form
-        if type(inVector) != np.ndarray:
-            if self.inSize == 1:
-                inVector = np.array(inVector).reshape(1, 1)
-            else:
-                raise ValueError(f"Net input size of 1 expected, got {self.inSize} instead")
-            
-        # Check for correct shape (x, 1) or (1, x)
-        m1 = np.size(inVector, axis=0)
-        try:
-            m2 = np.size(inVector, axis=1)
-        except:
-            m2 = 0
-        if m1*m2 == m1 or m1*m2 == m2:
-            # One of the dimensions is one, so the input is indeed a vector
-            pass
-        else:
-            # The input is not a vector but instead an array/matrix
-            raise ValueError(f"Expected inVector of size {(self.inSize, 1)} or {(1, self.inSize)}, got {(np.size(inVector, axis=0), np.size(inVector, axis=1))})")
+        # Simple Error Check (num features)
+        if self.inSize > 1 and inVector.size != self.inSize:
+            raise ValueError(f"Input X Sample Size ({inVector.size}) != Model Input Size ({self.inSize})!")
 
-        # Handling for row vectors (convert to column vectors)
-        passedRowTest = False
-        if inVector.size == np.size(inVector, axis=0): # Check if already correct form
-            passedRowTest = True
-        elif inVector.size == np.size(inVector, axis=1): # If all entries are oriented along the horizontal axis
-            # Convert row vectors to column vectors
-            if self.inSize != 1:
-                if inVector.size == np.size(inVector, 1):
-                    inVector = inVector.T
-                    passedRowTest = True
-            else:
-                # Just a single value so continue
-                passedRowTest = True
-        
-        # Calculate if the input vector is indeed a column vector
-        if inVector.size == np.size(inVector, axis=0) and passedRowTest:
-            # Vector has the right column vector shape -- now check for correct size
-            if inVector.size == self.inSize:
-                # Vector is of the right shape and size so continue
+        # First Layer
+        inVector = applyActi(inVector, self.activationFunction[0])
 
-                # Go through all of weights calculating the next vector
-                calcVec = inVector # Start the calcVector with the given input vector
-                
-                # Triple-checking size throughout forward prop.
-                calcVec = calcVec.reshape(calcVec.size, 1)
+        # All other layers (passing through weights)
+        for i in range(1, len(self.sizes)):
+            inVector = applyActi(np.dot(inVector, self.weights[i-1]) + self.biases[i-1], self.activationFunction[i])
 
-                # Apply first activation layer on input vector
-                calcVec = applyActi(calcVec, self.activationFunction[0])
-
-                for i, wi in enumerate(self.weights):
-                    # Forward propogation
-                    calcVec = sum(calcVec*wi)
-
-                    # Use the net's activation function for the current space
-                    hiddenFunction = self.activationFunction[i+1]
-
-                    # Apply the activation function
-                    calcVec = applyActi(calcVec, hiddenFunction)
-
-                    # Triple-checking size throughout forward prop.
-                    calcVec = calcVec.reshape(calcVec.size, 1)
-
-                # Handling for single-number outputs (free it from the array at the end)
-                if self.outSize == 1:
-                    calcVec = calcVec[0][0]
-
-                return calcVec
-            
-            # Vector is not of the correct shape for the used neural net
-            else:
-                raise ValueError(f"inVector size ({inVector.size}) does not match the net input size ({self.inSize})")
-        else:
-            raise RuntimeError("Failed to enter Calculation loop! (This shouldn't have happened)")
+        # Finish
+        if inVector.size == 1:   # Return if passing only a single value
+            return inVector[0]
+        else:   # Return if passing a resulting vector
+            # if len(inVector.shape) >= 3:
+            #     raise ValueError("Calculation Vector size >= 3")
+            inVector = inVector.reshape(inVector.size, 1)
+            return inVector
 
     def CopyNet(self):
         """
@@ -378,50 +344,29 @@ class MCRegressor:
         situations as NumPy's copy method to make an isolated net
         with the same values and properties as the parent net.
         """
-        # New Net Matrix/Stuff Sizes
-        newInputCount = self.inSize
-        newOutputCount = self.outSize
-        newHiddenCounts = self.hiddenSize
-        if type(self.activationFunction) == list:
-            newActivations = self.activationFunction.copy()
-        else:
-            newActivations = self.activationFunction
-        newSizes = [newInputCount] + newHiddenCounts + [newOutputCount]
+        # Check that it is fitted
+        if self.fitted == False:
+            raise ValueError("Model is not yet fitted and therefore cannot be copied")
 
-        # Make net net shell
-        newNet = MCRegressor(newHiddenCounts, newActivations)
-        newNet.inSize = newInputCount
-        newNet.outSize = newOutputCount
-        # newNet.hiddenSize = newHiddenCounts
-        newNet.sizes = newSizes
-        newNet.activationFunction = newActivations
-        
-        # Setup weights
-        newNet.weights = self.weights
-            
-        # Return the copied net
-        return newNet
+        return copy.deepcopy(self)
 
     def ApplyTweak(self, dW):
         for i, dWi in enumerate(dW):
             self.weights[i] = self.weights[i] + dWi
 
-    def fit(self, xArr:np.ndarray, yArr:np.ndarray, Ieta:int = 9, 
-                  Beta:int = 50, Gamma:int = 3, ScoreFunction = None,
-                  Verbose:bool = True, useFast:bool = True, 
-                  zeroIsBetter:bool = True, scoreType:str = 'sse'):
+    def fit(self, xArr:np.ndarray, yArr:np.ndarray, Ieta:int = 9, Beta:int = 50, Gamma:int = 3, 
+            ScoreFunction = None, verbose:bool = True, useFast:bool = True, zeroIsBetter:bool = True, 
+            scoreType:str = 'r2', useMP:bool = False):
         """
-        Returns a trained version of the net object to the relative to the given X & Y data
+        ## Overview
+
+        Returns the score history from the model training.
         
         Instead of always using the first net that has any improvement from the previous best net,
         a 'batch' of nets are generated from the parent net, then tested to find the best of those.
-        That is, this essentially does a search with depth 'Beta' to find the next best net
-        iteration, and is not a best-first training method.
+        That is, this essentially does a search with depth 'Beta' to find the next best net.
 
         ## Inputs
-
-        Net:
-            - The deep neural net to be trained.
 
         xArr:
             - Input data for the net.
@@ -434,12 +379,10 @@ class MCRegressor:
 
         Beta:
             - Amount of nets the be constructed and tested for improvements per iteration.
-            - The default value (0) instead calculates a batch size based on the current iteration.
-            The minimum batch size used in this case is 10.
 
         Gamma:
             - Sets the learning factor exponential decay rate. That is, every 'gamma' number 
-            of iterations, the learning rate will have decreased by 1/2. 
+            of iterations, the learning rate will decrease by a factor of 1/2. 
 
         ScoreFunction:
             - The fuction used to "score" nets alonge training, the default method (None) uses
@@ -453,60 +396,76 @@ class MCRegressor:
 
         useFast:
             - Decides if the faster net calculation method is used; note that this has worse
-              error handling but greatly increases net calculation speed for nets with few
-              hidden layers.
+              error handling but increases net calculation speed for nets with few layers.
 
         zeroIsBetter:
-            - Changes objective to getting a lower value score. Changes to False when using
-              a scoring function like R^2 or RAE where higher is better.
+            - Changes objective to getting a lower value score. Changes to False automatically 
+              when using a scoring function like R^2 or RAE where higher is better.
             - NOTE: if using an external scoring function, you will have to change this
               value manually according to how that function works.
 
         scoreType:
-            - Possible score methods in netMetrics: ['r2', 'sse', 'mae', 'rae']
+            - Possible score methods in netMetrics: ['r2', 'sse', 'mre', 'mae', 'rae']
+
+        useMP:
+            - If the multiprocessing form is allowed to be used
+            - Improvements differ vastly based on the machine being used
+            - When Beta*len(xArr) >= ~1e5, multiprocessing is better
+                - Automatically uses normal method otherwise (is faster below ~1e5)
+                - The larger the net, the more efficient it is to use multiprocessing
+                - Improvements of up to 4x are common with large nets/datasets
         """
 
-        # Update to models # inputs/outputs to the given data
-        if self.inSize == -1:
-            # Handling for 1D and 2D y data
-            if len(xArr.shape) > 1:
-                self.inSize = np.size(xArr, axis=1)
-            else:
-                self.inSize = 1
-        
-        if self.outSize == -1:
-            # Handling for 1D and 2D y data
-            if len(yArr.shape) > 1:
-                self.outSize = np.size(yArr, axis=1)
-                print(f"# of Y features found to be {np.size(yArr, axis=1)} and not 1 per sample. No action required if this is correct.")
-            else:
-                self.outSize = 1
+        # Complete model setup during first fit
+        if self.fitted == False:
 
-        # Regenerate the counts parameter with data size from x/y
-        if self.sizes[0] == -1:
-            self.sizes[0] = self.inSize
-        if self.sizes[-1] == -1:
-            self.sizes[-1] = self.outSize
+            if self.inSize == -1:
+                # Handling for 1D and 2D y data
+                if len(xArr.shape) > 1:
+                    self.inSize = np.size(xArr, axis=1)
+                else:
+                    self.inSize = 1
+            
+            if self.outSize == -1:
+                # Handling for 1D and 2D y data
+                if len(yArr.shape) > 1:
+                    self.outSize = np.size(yArr, axis=1)
+                    if self.outSize != 1:
+                        print(f"# of Y features found to be {self.outSize} and not 1 per sample. No action required if this is correct.")
+                else:
+                    self.outSize = 1
 
-        # Setup weights if not yet done
-        if self.weights == None:
-            self.weights = []
-            for i in range(len(self.sizes) - 1):
-                # Initialize weights with some random weights in range [-0.5, 0.5]
-                newWeightsArr = (np.random.rand(self.sizes[i], self.sizes[i+1]) - 0.5)
-                self.weights.append(newWeightsArr)
+            # Regenerate the counts parameter with data size from x/y
+            if self.sizes[0] == -1:
+                self.sizes[0] = self.inSize
+            if self.sizes[-1] == -1:
+                self.sizes[-1] = self.outSize
 
-            # Calculate the number of Parameters in the Weights/net
-            weightSizes = [M.size for M in self.weights]
-            self.parameters = sum(weightSizes)
+            # Setup Biases
+            for si in self.sizes[1:]:
+                self.biases.append(np.zeros(si))
 
-        # Test Calculation Time (for __str__)
-        if type(self.speed) == str:
+            # Setup weights
+            if self.weights == None:
+                self.weights = []
+                for i in range(len(self.sizes) - 1):
+                    # Initialize weights with some random weights in range [-0.5, 0.5]
+                    newWeightsArr = (np.random.rand(self.sizes[i], self.sizes[i+1]) - 0.5)
+                    self.weights.append(newWeightsArr)
+
+                # Calculate the number of Parameters in the Weights/net
+                weightSizes = [M.size for M in self.weights]
+                self.parameters = sum(weightSizes) + sum([b.size for b in self.biases])
+
+            # Test Calculation Time (for __str__)
             t1 = pc()
             for _ in range(3):  # Do just 3 iterations
-                self.Calculate(np.ones((self.inSize, 1)))
+                self.Calculate(np.ones((self.inSize)))
             t2 = pc()
             self.speed = format((t2-t1)/3, ".2e")
+
+            # Mark fitting as done
+            self.fitted = True
 
         # Pandas DataFrame and Series handling
         Tx = str(type(xArr))
@@ -518,7 +477,7 @@ class MCRegressor:
             yArr = yArr.to_numpy()
 
         # Verify data types
-        if type(self) in [MCRegressor, SUNN] and type(xArr) == np.ndarray and type(yArr) == np.ndarray:
+        if type(self) == MCNeuralNetwork and type(xArr) == np.ndarray and type(yArr) == np.ndarray:
             # print("All data is good")
             pass
         else:
@@ -540,6 +499,14 @@ class MCRegressor:
         else:
             currentScore = ScoreFunction(self, xArr, yArr)
 
+        # Start score history
+        history = [currentScore]
+
+        # Dev feature: plotting all scores
+        # scores = ['r2', 'sse', 'mre', 'mae', 'rae']
+        # startingScores = [[self.score(xArr, yArr, useFast=True, method=scr)] for scr in scores]
+        # historyALL = dict(zip(scores, startingScores))
+
         # Generational Training method
         for I in range(Ieta):
             # Get current tweak amplitude
@@ -553,13 +520,17 @@ class MCRegressor:
                 testNets.append(newNet)
 
             # Get the offspring's scores
-            newNetScores = []
-            for mutNet in testNets:
-                if ScoreFunction == None:
-                    newScore = mutNet.score(xArr, yArr, useFast=useFast, method=scoreType)
-                else:
-                    newScore = ScoreFunction(mutNet, xArr, yArr)
-                newNetScores.append(newScore)
+            if len(xArr)*Beta >= 1e5 and useMP: # Multiprocessing method
+                newNetScores = multiNetScore(testNets, xArr=xArr, yTrue=yArr, scoreType=scoreType, useFast=useFast)
+                
+            else: # Normal method
+                newNetScores = []
+                for mutNet in testNets:
+                    if ScoreFunction == None:
+                        newScore = mutNet.score(xArr, yArr, useFast=useFast, method=scoreType)
+                    else:
+                        newScore = ScoreFunction(mutNet, xArr, yArr)
+                    newNetScores.append(newScore)
 
             # See if the best score is an improvement
             if SK == 1:
@@ -570,10 +541,18 @@ class MCRegressor:
                 # Actions for improvement
                 bestIndex = newNetScores.index(batchBestScore)
                 self.weights = testNets[bestIndex].weights
+                self.biases = testNets[bestIndex].biases
                 currentScore = batchBestScore
 
+            # Update score history
+            history.append(currentScore)
+
+            # Dev thingy:
+            # for scr in scores:
+            #     historyALL[scr].append(self.score(xArr, yArr, useFast=True, method=scr))
+
             # Update fancy progress bar stuff
-            if Verbose:
+            if verbose:
                 pix1 = '='
                 pix2 = '-'
                 donePercent = (I + 1) / (Ieta)
@@ -582,46 +561,52 @@ class MCRegressor:
                 pix2Len = barLength - pix1Len
                 print(f"{scoreType.upper()} Score: {currentScore:.6f} | Training: {pix1*pix1Len}{pix2*pix2Len}", end='\r')
         
-        # Finish with returning best net and its R2 value
-        if Verbose:
-            print(f"{scoreType.upper()} Score: {currentScore:.6f} | Training: {'=='*20}                   ")
-
-    def predict(self, X, useFast:bool = True):
+        # Finish: print final score/progress and return the score history
+        if verbose:
+            print(f"{scoreType.upper()} Score: {currentScore:.6f} | Training: {'=='*20}       ")
+        
+        return np.array(history)
+    
+    def predict(self, xArr, useFast:bool = True):
         """
         Calculates and returns the net outputs for all the given X input data
         """
         # Pandas DataFrame and Series handling
-        T = str(type(X))
+        T = str(type(xArr))
         if T in ["<class 'pandas.core.series.Series'>", "<class 'pandas.core.frame.DataFrame'>"]:
-            X = X.to_numpy()
+            xArr = xArr.to_numpy()
 
         # Check that input X is array and correct shape
-        if type(X) == np.ndarray:
+        if type(xArr) == np.ndarray:
             # Check for the correct amount of inputs
-            if len(X.shape) > 1:
-                inSize = np.size(X, 1)
+            if len(xArr.shape) > 1:
+                inSize = np.size(xArr, 1)
             else:
                 inSize = 1
 
-            dataSize = np.size(X, 0)
+            dataSize = np.size(xArr, 0)
 
             if inSize != self.inSize:
-                raise ValueError(f"Given # of unique inputs {inSize} does not match the net input size {self.inSize}!")
-            
+                if self.fitted == False:
+                    raise AttributeError("Model is not yet fitted, call .fit first")
+                else:
+                    raise ValueError(f"Given # of unique inputs {inSize} does not match the net input size {self.inSize}!")
         else:
-            raise TypeError(f"Unrecognized X input data type (Is {type(X)})!")
+            raise TypeError(f"Unrecognized X input data type (Is {type(xArr)})!")
 
         # Calculate predictions for given inputs
         predictions = []
         for i in range(dataSize):
             # Generate net input vector
-            invec = np.array(X[i]).reshape(1,inSize)
+            invec = np.array(xArr[i]).reshape(1,inSize)
 
             # Get net prediciton
-            val = self.Calculate(invec, useFast=useFast)
-            predictions.append(val)
-        
-        return np.array(predictions)
+            predictions.append(self.Calculate(invec, useFast=useFast))
+
+        # Format predictions as numpy array
+        predictions = np.array(predictions)
+        predictions.reshape((len(xArr), self.outSize))  # For some reason, doing this in the line above screws up the predictions of the models???? idk just keep it here
+        return predictions
 
     def score(self, xArr, yTrue, useFast:bool = True, method:str = 'r2'):
         """
@@ -629,26 +614,28 @@ class MCRegressor:
 
         method:
             - 'r2' returns the R^2 fit of the model
-            - 'sse' returns the Sum Squared Error
+            - 'sse' returns the Total Sum Squared Error
+            - 'mre' returns the Mean Root Error
+                - MRE = SQRT( SUM( (ytrue - ymodel)**2 ) / N )
             - 'mae' returns the Mean Absolute Error
             - 'rae' returns a custom value similar to r2 from raeScore()
         """
 
-        # Get predictions
-        if type(self) == MCRegressor:
-            yHat = self.predict(xArr, useFast=useFast)
-        elif type(self) == SUNN:
-            yHat = self.predict_su(xArr)
-        else:
-            raise ValueError(f"Unrecognized model type: {type(self)}")
+        # Get model predictions
+        yHat = self.predict(xArr, useFast=useFast)
+        yHat.shape = yHat.shape[:2]
 
         ## R^2 Method ##
         if method == 'r2':
-            return np.clip(r2d2(yHat, yTrue), -1, 1)
+            return r2d2(yHat, yTrue)
 
         ## Sum Squared Error ##
         elif method == 'sse':
             return np.sum((yHat - yTrue)**2)
+        
+        ## Mean Sum Squared Error ##
+        elif method == 'mre':
+            return (np.sum((yHat - yTrue)**2) / len(yHat))**0.5
 
         ## Mean Absolute Error ##
         elif method == 'mae':
@@ -659,29 +646,228 @@ class MCRegressor:
 
         # Raise error if one of the possible methods was not given
         else:
-            raise ValueError(f"Given score type {method} is not one of the avalible types.")
+            raise ValueError(f"Given score type '{method.upper()}' is not one of the avalible types.")
 
-    def save(self, pathOrName:str):
+    def save(self, path_or_name:str):
         """
         Uses joblib function 'dump' to save the model object with the given
         file path or name.
         """
-        dump(self, pathOrName)
+        dump(self, path_or_name)
+
+    def optimize_fit(self, xArr, yArr, activationTests:list = ['silu', 'dsilu', 'tanh', 'root', 'lin'],
+                    trainDepthFactor:int = 1, inputActivation:str = 'lin', outputActivation:str = 'lin',
+                    testInput:bool = False, testOutput:bool = False, scoreType:str = 'sse',
+                    useBest:bool = True, useFast:bool = True, Verbose:bool = True):
+        """
+        ## Overview
+
+        A method that attempts to find a the most optimal combination of activation functions
+        for an MCNeuralNetwork model, for a given X/Y set and possible activations in activationTests. 
+        Returns in-place the best model that fits to the given data.
+
+        Note that there is a test-train split done before testing activation sets.
+
+        ## Inputs
+
+        - xArr:
+            - The input X samples
+        - yArr:
+            - The input Y target samples
+        - activationTests:
+            - The list that test activations are pulled from 
+        - trainDepthFactor:
+            - An integer [1, inf]; higher means longer training cycles for more a more accurate optimization
+        - inputActivation:
+            - If testInput is False (Default), this will be the input's activation function used in all tests
+        - outputActivation:
+            - If testOutput is False (Default), this will be the outputs's activation function used in all tests
+        - testInput:
+            - If True, the input activations will be tested as well (with activations pulled from activationTests)
+            - inputActivation is ignored if True
+        - testOutput:
+            - If True, the output activations will be tested as well (with activations pulled from activationTests)
+            - outputActivation is ignored if True
+        - scoreType:
+            - One of the scoring options in the .score method ('r2', 'sse', 'mae', or 'rae)
+        - useBest:
+            - If True (Default) the best-scoring model will replace the base model (returned in-place)
+        - useFast:
+            - If True (Default) fastCalculate will be used (less error reporting for faster calculation speeds)
+        - Verbose:
+            - If True (Default) the top 3 (or less) combinations and their validation scores are printed when completed
+        """
+
+        # Results lists
+        scores = []
+        afsets = []
+
+        # Generate info for making generalized comboniation tests
+        inoutNonTestLen = 2 - (testInput + testOutput)
+        setLength = len(self) - inoutNonTestLen
+        comboID = [0] * setLength
+        baseNum = len(activationTests)
+
+        # Fit the model to data shape if not already fitted
+        if self.fitted == False:
+            self.fit(xArr, yArr, Ieta=0, verbose=0, scoreType=scoreType)
+
+        # Set top model as self to start
+        topModel = self.CopyNet()
+
+        def marchCombo(comboID, baseNum):
+            """
+            Progresses the test combo list as if it were a binary string,
+            but with a base of baseNum, not 2.
+            """
+            carry = False
+            comboID[0] += 1
+
+            for i in range(len(comboID)):
+                if carry:
+                    comboID[i] += 1
+
+                if comboID[i] >= baseNum:
+                    comboID[i] = 0
+                    carry = True
+                else:
+                    carry = False
+                    break
+
+            return comboID
+        
+        # Check if any optimization to be done
+        numCombos = baseNum**setLength
+        if setLength == 0:
+            numCombos = 0
+            print("No optimization done! No hidden layers & no input/output layers set to test mode")
+            return None
+        
+        # Run through all possible combos of activations
+        xt, xv, yt, yv = TTSplit(xArr, yArr)
+        for i in range(numCombos):
+            print(f"On Test #{i+1} / {numCombos}    ", end='\r')
+
+            # Generate a test model with the new test activations list
+            testModel = self.CopyNet()
+
+            newAFset = [activationTests[ID] for ID in comboID]
+            if inoutNonTestLen == 2:
+                newAFset = [inputActivation] + newAFset + [outputActivation]
+            elif inoutNonTestLen == 0:
+                pass
+            elif testInput:
+                newAFset = newAFset + [outputActivation]
+            elif testOutput:
+                newAFset = [inputActivation] + newAFset
+            
+            testModel.activationFunction = newAFset
+
+            # Test/validate model scores; add to scores and set lists
+            testModel.fit(xt, yt, Ieta=9*trainDepthFactor, Gamma=3*trainDepthFactor, 
+                          verbose=False, useFast=useFast, scoreType=scoreType)
+            scores.append(testModel.score(xv, yv, method=scoreType, useFast=useFast))
+            afsets.append(newAFset)
+
+            # Check it last was a top model tested
+            if scoreType in ['sse', 'mae', 'mre'] and scores[-1] == min(scores):
+                topModel = testModel.CopyNet()
+            elif scoreType in ['r2', 'rae'] and scores[-1] == max(scores):
+                topModel = testModel.CopyNet()
+
+            # Generate the next combo to try
+            comboID = marchCombo(comboID, baseNum)
+
+        # Get top 3 sets and corresponding scores
+        topSetsScores = []
+        leaderboardLen = min(3, len(scores))
+        for _ in range(leaderboardLen):
+            # Get best score according to score type used
+            if scoreType in ['sse', 'mae', 'mre']:
+                bestInd = scores.index(min(scores))
+            elif scoreType in ['r2', 'rae']:
+                bestInd = scores.index(max(scores))
+
+            topSetsScores.append([scores[bestInd], afsets[bestInd]])
+
+            # Remove current top
+            scores.pop(bestInd)
+            afsets.pop(bestInd)
+
+        # Replace the model's activations and weights with the best set
+        if useBest:
+            self.activationFunction = topModel.activationFunction
+            self.weights = topModel.weights
+
+        # Return the top results for comparison
+        if Verbose:
+            print(f"Top {leaderboardLen} Combinations:")
+            for i in range(leaderboardLen):
+                print(f"{scoreType.upper()} Score: {topSetsScores[i][0]} | Set: {topSetsScores[i][1]}")
+
+    def load(path_or_name:str):
+        return load_model(path_or_name=path_or_name)
 
 
-# Primary Classifier
+# Neural Network Ensemble Model
+class MCSimpleEnsemble:
+    def __init__(self, n_estimators = 10, hidden_counts = [100,], activations = "DEFAULT"):
+        """
+        A simple ensemble model using n models dervied from a cross validation.
+        The model's weights are based off of their relative scores from the cross
+        validation initially done
+        """
+
+        # Attributes
+        self.n_estimators = n_estimators
+        self.models = []
+        self.weights = []
+        self.fitted = False
+        self.base_model = MCNeuralNetwork(hidden_counts=hidden_counts, activations=activations)
+
+    def fit(self, X, Y, depth=1, verbose=True, scoreType='r2', **kwargs):
+        self.models, self.weights = cross_val(self.base_model, X, Y, N=self.n_estimators, 
+                                              return_models=True, train_depth=depth, verbose=verbose,
+                                              scoreType=scoreType)
+        
+        # Fit check
+        self.base_model.fitted = True
+        self.fitted = True
+
+    def predict(self, X, **kwargs):
+        yhat = 0
+        for wi, mi in zip(self.weights, self.models):
+            yhat += wi*mi.predict(X)
+        return yhat
+
+    def score(self, X, y_true, method='r2'):
+        # yhat = self.predict(X)
+        # return r2d2(yhat, y_true)
+        return MCNeuralNetwork.score(self, X, y_true, method=method)
+    
+    def CopyNet(self):
+        """
+        Copy a neural net object to a new variable. Used in similar
+        situations as NumPy's copy method to make an isolated net
+        with the same values and properties as the parent net.
+        """
+        # Check that it is fitted
+        if self.fitted == False:
+            raise ValueError("Model is not yet fitted and therefore cannot be copied")
+
+        return copy.deepcopy(self)
 
 
-# SUNN (Super Unique Neural Network) *BETA*
-class SUNN():
-    def __init__(self, hiddenCounts: list = [25,], activations: list = ['lin', 'relu', 'sig', 'silu', 'dsilu', 'elu'],
-                 inputActivation:str = 'lin', outputActivation:str = 'lin'):
+# SUNN (Super Unique Neural Network)
+class SUNN:
+    def __init__(self, hidden_counts: list = [100,], activations: list = ['lin', 'silu', 'dsilu', 'elu', 'tanh', 'root'],
+                 inputActivation:str = 'lin', outputActivation:str = 'lin', structured:bool = True):
         """
         A Neural Network regressor that takes using many activation functions (AFs) to
         the extreme. By applying a seperate AF at *every* node, some very unique behvaiors
         can be generated. 
 
-        - hiddenCounts:
+        - hidden_counts:
             - Hidden layer sizes
 
         - activations:
@@ -701,36 +887,49 @@ class SUNN():
                     - A single string/Activation Function
                     - Values are NOT case sensitive!
 
-        - inputActivation
+        - inputActivation:
             - Force the input nodes to have this activation function
             - Set to None to disable
 
-        - outputActivation
+        - outputActivation:
             - Force the output nodes to have this activation function
             - Set to None to disable
+
+        - structured:
+            - Determines if activations are equally distributed amoung the nodes per layer instead of being random
         """
 
         # Sizes (inSize and outSize not yet initiated)
         self.inSize = -1
         self.outSize = -1
-        self.hiddenSize = hiddenCounts
-        self.sizes = [self.inSize] + hiddenCounts + [self.outSize]
+        
+        self.hiddenSize = hidden_counts
+        self.sizes = [self.inSize] + hidden_counts + [self.outSize]
 
         # Activation Function (AF) Stuff
         self.activationFunction = activations
         self.inputActivation = inputActivation
         self.outputActivation = outputActivation
+        self.structured = structured
 
         if self.inputActivation not in self.activationFunction and self.inputActivation != None:
             self.activationFunction.append(self.inputActivation)
         if self.outputActivation not in self.activationFunction and self.outputActivation != None:
             self.activationFunction.append(self.outputActivation)
 
+        # Biases (Not fully implemented)
+        self.use_biases = False
+        self.biases = None
+
         # Not yet generatable stuff
         self.parameters = "Not yet generated; call .fit first"
         self.speed = "Not yet generated; call .fit first"
         self._weights = None
         self._SUA = None
+        self.fitted = False
+
+        # Sneaky setting
+        self.weight_bounds = (-1, 1)
 
         # Setup dictionary to make a map for the given activations
         self.SUmap = {}
@@ -776,21 +975,61 @@ class SUNN():
     def Calculate(self, invec, useFast=True):
         return SUNN.calculate_su(self, invec)
 
-    def predict(self, xarray):
-        return MCRegressor.predict(self, xarray)
+    def predict(self, xarray, useFast=True):
+        out = MCNeuralNetwork.predict(self, xarray, useFast=useFast)
+        out = out.reshape((len(xarray), self.outSize))
+        return out
 
     def TweakWeights(*args):
-        return super(type(SUNN.TweakWeights), MCRegressor.TweakWeights(*args))
+        return super(type(SUNN.TweakWeights), MCNeuralNetwork.TweakWeights(*args))
 
-    def score(self, xarray, yarray, method:str = 'r2', useFast=True):
-        return MCRegressor.score(self, xarray, yarray, useFast=True, method=method)
+    def score(net, xArr, yTrue, method='r2', useFast=True):
+        return MCNeuralNetwork.score(net, xArr, yTrue, useFast=useFast, method=method)
+    
+    def CopyNet(self):
+        # # New Net Matrix/Stuff Sizes (These aren't actually outside of SUNN's init)
+        # newInputCount = self.inSize
+        # newOutputCount = self.outSize
+        # newHiddenCounts = self.hiddenSize
+        # if type(self.activationFunction) == list:
+        #     newActivations = self.activationFunction.copy()
+        # else:
+        #     newActivations = self.activationFunction
+        # newSizes = [newInputCount] + newHiddenCounts + [newOutputCount]
+
+        # # Make net net shell
+        # newNet = SUNN(newHiddenCounts, newActivations)
+        # newNet.inSize = newInputCount
+        # newNet.outSize = newOutputCount
+        # # newNet.hiddenSize = newHiddenCounts
+        # newNet.sizes = newSizes
+        # newNet.activationFunction = newActivations
+        # newNet.inputActivation = self.inputActivation
+        # newNet.outputActivation = self.outputActivation
+        # newNet.structured = self.structured
+        
+        # # Setup weights / SUAs (handlers copy this information correctly)
+        # newNet.weights = self.weights
+        # newNet.SUA = self.SUA
+            
+        # # Return the copied net
+        # return newNet
+        
+        # Use new deepcopy method
+        return MCNeuralNetwork.CopyNet(self)
 
     ## Custom SUNN Methods
-    def fit(self, xArr:np.ndarray, yArr:np.ndarray, Ieta:int = 9, Beta:int = 25, 
-                  Gamma:int = 3, ScoreFunction = None, Verbose:bool = True, 
-                  zeroIsBetter:bool = True, scoreType:str = 'sse'):
+    def fit(self, xArr:np.ndarray, yArr:np.ndarray, Ieta:int = 9, Beta:int = 50, 
+                  Gamma:int = 3, ScoreFunction = None, verbose:bool = True, 
+                  zeroIsBetter:bool = True, scoreType:str = 'r2', useMP = False, 
+                  useFast=True):
         """
-        Returns a trained version of the net object to the relative to the given X & Y data
+        Returns in-place a trained version of the model relative to the given X & Y data
+        
+        Instead of always using the first net that has any improvement from the previous best net,
+        a 'batch' of nets are generated from the parent net, then tested to find the best of those.
+        That is, this essentially does a search with depth 'Beta' to find the next best net
+        iteration, and is not a best-first training method.
 
         ## Inputs
 
@@ -808,12 +1047,10 @@ class SUNN():
 
         Beta:
             - Amount of nets the be constructed and tested for improvements per iteration.
-            - The default value (0) instead calculates a batch size based on the current iteration.
-            The minimum batch size used in this case is 10.
 
         Gamma:
             - Sets the learning factor exponential decay rate. That is, every 'gamma' number 
-            of iterations, the learning rate will have decreased by 1/2. 
+            of iterations, the learning rate will decrease by a factor of 1/2. 
 
         ScoreFunction:
             - The fuction used to "score" nets alonge training, the default method (None) uses
@@ -825,11 +1062,6 @@ class SUNN():
         Verbose:
             - Turns off printing the current progress and best R^2 value during training.
 
-        useFast:
-            - Decides if the faster net calculation method is used; note that this has worse
-              error handling but greatly increases net calculation speed for nets with few
-              hidden layers.
-
         zeroIsBetter:
             - Changes objective to getting a lower value score. Changes to False when using
               a scoring function like R^2 or RAE where higher is better.
@@ -837,54 +1069,63 @@ class SUNN():
               value manually according to how that function works.
 
         scoreType:
-            - Possible score methods in netMetrics: ['r2', 'sse', 'mae', 'rae']
+            - Possible score methods in netMetrics: ['r2', 'sse', 'mae', 'mre', 'rae']
+
+        useMP:
+            - Allows the use of multiprocessing when testing net batches
+            - This may harm preformance for a lower number of samples
         """
 
         # Update to models # inputs/outputs to the given data
-        if self.inSize == -1:
-            # Handling for 1D and 2D y data
-            if len(xArr.shape) > 1:
-                self.inSize = np.size(xArr, axis=1)
-            else:
-                self.inSize = 1
-        
-        if self.outSize == -1:
-            # Handling for 1D and 2D y data
-            if len(yArr.shape) > 1:
-                self.outSize = np.size(yArr, axis=1)
-                print(f"# of Y features found to be {np.size(yArr, axis=1)} and not 1 per sample. No action required if this is correct.")
-            else:
-                self.outSize = 1
+        if self.fitted == False:
+            if self.inSize == -1:
+                # Handling for 1D and 2D y data
+                if len(xArr.shape) > 1:
+                    self.inSize = np.size(xArr, axis=1)
+                else:
+                    self.inSize = 1
+            
+            if self.outSize == -1:
+                # Handling for 1D and 2D y data
+                if len(yArr.shape) > 1:
+                    self.outSize = np.size(yArr, axis=1)
+                    if self.outSize != 1:
+                        print(f"# of Y features found to be {self.outSize} and not 1 per sample. No action required if this is correct.")
+                else:
+                    self.outSize = 1
 
-        # Regenerate the counts parameter with data size from x/y
-        if self.sizes[0] == -1:
-            self.sizes[0] = self.inSize
-        if self.sizes[-1] == -1:
-            self.sizes[-1] = self.outSize
+            # Regenerate the counts parameter with data size from x/y
+            if self.sizes[0] == -1:
+                self.sizes[0] = self.inSize
+            if self.sizes[-1] == -1:
+                self.sizes[-1] = self.outSize
 
-        # Setup weights if not yet done
-        if self.weights == None:
-            self.weights = []
-            for i in range(len(self.sizes) - 1):
-                # Initialize weights with some random weights in range [-0.5, 0.5]
-                newWeightsArr = (np.random.rand(self.sizes[i], self.sizes[i+1]) - 0.5)
-                self.weights.append(newWeightsArr)
+            # Setup weights if not yet done
+            if self.weights == None:
+                self.weights = []
+                for i in range(len(self.sizes) - 1):
+                    # Initialize weights with some random weights in range [-0.5, 0.5]
+                    newWeightsArr = (np.random.rand(self.sizes[i], self.sizes[i+1]) - 0.5)
+                    self.weights.append(newWeightsArr)
 
-            # Calculate the number of Parameters in the Weights/net
-            weightSizes = [M.size for M in self.weights]
-            self.parameters = sum(weightSizes)
+                # Calculate the number of Parameters in the Weights/net
+                weightSizes = [M.size for M in self.weights]
+                self.parameters = sum(weightSizes)
 
-        # Setup SUAs
-        if self.SUA == None:
-            self.setSUAs()
+            # Setup SUAs
+            if self.SUA == None:
+                self.setSUAs()
 
-        # Test Calculation Time (for __str__)
-        if type(self.speed) == str:
-            t1 = pc()
-            for _ in range(3):  # Do just 3 iterations
-                self.calculate_su(np.ones((self.inSize, 1)))
-            t2 = pc()
-            self.speed = format((t2-t1)/3, ".2e")
+            # Test Calculation Time (for __str__)
+            if type(self.speed) == str:
+                t1 = pc()
+                for _ in range(3):  # Do just 3 iterations
+                    self.calculate_su(np.ones((self.inSize)))
+                t2 = pc()
+                self.speed = format((t2-t1)/3, ".2e")
+
+            # Complete fit setup
+            self.fitted = True
 
         # Pandas DataFrame and Series handling
         Tx = str(type(xArr))
@@ -926,18 +1167,22 @@ class SUNN():
             # Get new mutated test nets
             testNets = []
             for n in range(Beta):
-                newNet = self.copy_su()
+                newNet = self.CopyNet()
                 newNet.TweakWeights(twk)
                 testNets.append(newNet)
 
             # Get the offspring's scores
-            newNetScores = []
-            for mutNet in testNets:
-                if ScoreFunction == None:
-                    newScore = mutNet.score(xArr, yArr, method=scoreType)
-                else:
-                    newScore = ScoreFunction(mutNet, xArr, yArr)
-                newNetScores.append(newScore)
+            if len(xArr)*Beta >= 110000 and useMP: # Multiprocessing method
+                newNetScores = multiNetScore(testNets, xArr=xArr, yTrue=yArr, scoreType=scoreType, useFast=True)
+                
+            else: # Normal method
+                newNetScores = []
+                for mutNet in testNets:
+                    if ScoreFunction == None:
+                        newScore = mutNet.score(xArr, yArr, method=scoreType)
+                    else:
+                        newScore = ScoreFunction(mutNet, xArr, yArr)
+                    newNetScores.append(newScore)
 
             # See if the best score is an improvement
             if SK == 1:
@@ -952,7 +1197,7 @@ class SUNN():
                 currentScore = batchBestScore
 
             # Update fancy progress bar stuff
-            if Verbose:
+            if verbose:
                 pix1 = '='
                 pix2 = '-'
                 donePercent = (I + 1) / (Ieta)
@@ -962,44 +1207,69 @@ class SUNN():
                 print(f"{scoreType.upper()} Score: {currentScore:.6f} | Training: {pix1*pix1Len}{pix2*pix2Len}", end='\r')
         
         # Finish with returning best net and its R2 value
-        if Verbose:
+        if verbose:
             print(f"{scoreType.upper()} Score: {currentScore:.6f} | Training: {'=='*20}                   ")
 
     def setSUAs(self):
         # Set up first SU (Super Unique) AF arrays
         self.SUA = []
-        for i, si in enumerate(self.sizes):
-            # Force input arrays to have input activation
-            if self.inputActivation != None and i == 0:
-                self.SUA.append(np.ones(shape=(si)) * list(self.SUmap.keys())[list(self.SUmap.values()).index(self.inputActivation)])
+        # Using structured form (for easier activation function usefulness decoding)
+        if self.structured:
+            for i, si in enumerate(self.sizes):
+                # Force input arrays to have input activation
+                if self.inputActivation != None and i == 0:
+                    self.SUA.append(np.ones(shape=(si)) * list(self.SUmap.keys())[list(self.SUmap.values()).index(self.inputActivation)])
 
-            # Force output arrays to have output activation
-            elif self.outputActivation != None and i == len(self.sizes)-1:
-                self.SUA.append(np.ones(shape=(si)) * list(self.SUmap.keys())[list(self.SUmap.values()).index(self.outputActivation)])
+                # Force output arrays to have output activation
+                elif self.outputActivation != None and i == len(self.sizes)-1:
+                    self.SUA.append(np.ones(shape=(si)) * list(self.SUmap.keys())[list(self.SUmap.values()).index(self.outputActivation)])
 
-            # Hidden layers
-            else:
-                self.SUA.append(np.random.randint(1, len(list(self.SUmap.keys()))+1, size=(si)))
+                # Hidden layers
+                else:
+                    layer = []
+                    i = 0
+                    while len(layer) < si:
+                        if i >= len(self.SUmap.keys()):
+                            i = 0
+                        key = list(self.SUmap.keys())[i]
+                        layer.append(key)
+                        i += 1
+                    layer.sort()
+                    layer = np.array(layer)
+                    layer.reshape(si)
+                    self.SUA.append(layer)
+
+
+        # Randomized SUA setup
+        else:
+            for i, si in enumerate(self.sizes):
+                # Force input arrays to have input activation
+                if self.inputActivation != None and i == 0:
+                    self.SUA.append(np.ones(shape=(si)) * list(self.SUmap.keys())[list(self.SUmap.values()).index(self.inputActivation)])
+
+                # Force output arrays to have output activation
+                elif self.outputActivation != None and i == len(self.sizes)-1:
+                    self.SUA.append(np.ones(shape=(si)) * list(self.SUmap.keys())[list(self.SUmap.values()).index(self.outputActivation)])
+
+                # Hidden layers
+                else:
+                    self.SUA.append(np.random.randint(1, len(list(self.SUmap.keys()))+1, size=(si)))
 
     def calculate_su(self, xi):
         """
-        Calculate function for the SUNN model
+        Returns the model's prediction for a given X sample
         """
         # Basic check - Shape vector to what it should be
         # This should break if bad input size/shape/type is given
         # but thats fine lol >.<
-        xi = xi.reshape((self.inSize, 1))
+        xi = xi.reshape((self.inSize))
 
         # Calculation for all layers (first moved into here)
         library = zip(list(self.SUmap.keys()), list(self.SUmap.values()))
         for i in range(len(self.sizes)):
-            # Non-First layer things
-            if i != 0:
-                # Keep column vector shape
-                xi = xi.reshape((xi.size, 1))
-
-                # Do matrix multiplication as per usual
-                xi = sum(xi*self.weights[i-1])
+            # # Non-First layer things
+            if i > 0:
+                xi = np.dot(xi, self.weights[i-1])
 
             # New SU AF handling
             for key, AFtype in library:
@@ -1016,43 +1286,6 @@ class SUNN():
             xi = xi.reshape(xi.size, 1)
             return xi
 
-    def predict_su(self, xarray):
-        """
-        Version of the predict function for the SUNN model
-        """
-        # Pandas DataFrame and Series handling
-        T = str(type(xarray))
-        if T in ["<class 'pandas.core.series.Series'>", "<class 'pandas.core.frame.DataFrame'>"]:
-            xarray = xarray.to_numpy()
-
-        # Check that input X is array and correct shape
-        if type(xarray) == np.ndarray:
-            # Check for the correct amount of inputs
-            if len(xarray.shape) > 1:
-                inSize = np.size(xarray, 1)
-            else:
-                inSize = 1
-
-            dataSize = np.size(xarray, 0)
-
-            if inSize != self.inSize:
-                raise ValueError(f"Given # of unique inputs {inSize} does not match the net input size {self.inSize}!")
-            
-        else:
-            raise TypeError(f"Unrecognized xarray input data type (Is {type(xarray)})!")
-
-        # Calculate predictions for given inputs
-        predictions = []
-        for i in range(dataSize):
-            # Generate net input vector
-            invec = np.array(xarray[i]).reshape(1,inSize)
-
-            # Get net prediciton
-            val = self.calculate_su(invec)
-            predictions.append(val)
-        
-        return np.array(predictions)
-
     def TweakSUA(self, amplitude):
         """
         Version of the tweak function to modify the single-node AF
@@ -1063,6 +1296,8 @@ class SUNN():
         # Iterate over all of the SU arrays
         for i in range(len(self.SUA)):
             if (self.inputActivation != None and i == 0) or (self.outputActivation != None and i == len(self.SUA)-1):
+                continue
+            elif i not in [0, len(self.SUA)-1] and self.structured:
                 continue
             else:
                 # Make a map of true/false from random function in array that matches
@@ -1079,55 +1314,458 @@ class SUNN():
                 # on those locations, applying a AF type change to there
                 self.SUA[i][changeIndicies] = newSUA[changeIndicies]
 
-    def copy_su(self):
-        # New Net Matrix/Stuff Sizes (These aren't actually outside of SUNN's init)
-        newInputCount = self.inSize
-        newOutputCount = self.outSize
-        newHiddenCounts = self.hiddenSize
-        if type(self.activationFunction) == list:
-            newActivations = self.activationFunction.copy()
-        else:
-            newActivations = self.activationFunction
-        newSizes = [newInputCount] + newHiddenCounts + [newOutputCount]
 
-        # Make net net shell
-        newNet = SUNN(newHiddenCounts, newActivations)
-        newNet.inSize = newInputCount
-        newNet.outSize = newOutputCount
-        # newNet.hiddenSize = newHiddenCounts
-        newNet.sizes = newSizes
-        newNet.activationFunction = newActivations
-        newNet.inputActivation = self.inputActivation
-        newNet.outputActivation = self.outputActivation
-        
-        # Setup weights / SUAs (handlers copy this information correctly)
-        newNet.weights = self.weights
-        newNet.SUA = self.SUA
+# SOUP Regressor (Sub-Ordinary Universal Polynomial)
+class MCSoupRegressor:
+    def __init__(self, coef_bounds = (-1, 1), use_tan=False, round_threshold=1e-5):
+        # Desc
+        """
+        ## Sub-Ordinary Universal Polynomial
+
+        Creates a large fittable funtion/""polynomial"" for every X feature given in .fit
+
+        - coef_bounds
+            - These are the min and max bounds that the coefficients (k_i) in f(x) can take.
+              Feel free to experiment with various ranges, though (-1, 1) tends to work just fine.
+        - use_tan
+            - Three TAN(x) terms are included in f(x), but due to the asymptotic nature of TAN, they
+              can actually hurt model preformance. So, this is disabled by default, but left as a
+              setting to try anyways.
+        - round_threshold
+            - When adjusting the coefficients of the model, if a single coefficient's magnitude falls
+              below this threshold, it is rounded to 0. This makes it easier for the model to completely
+              remove terms from its various f(x) equations if it finds that is better.
+
+
+        ## Technical Breakdown
+
+        For each column of (Normalized!) data, generates a function of best fit of the form:
+
+        f(x) = k0 + k1*(|x|**0.5) + k2*(x) + k3*(x**2) + k4*sin(x/3) + k5*sin(x) + k6*sin(3x) + 
+
+               k7*cos(x/3) + k8*cos(x) + k9*cos(3x) + k10*tan(x/3) + k11*tan(x) + k12*tan(3x) + 
+
+               k13*e**(x/3) + k14*e**(x) + k15*e**(3x) + k16*e**(-x/3) + k17*e**(-x) + k18*e**(-3x)
+
+        There is an f(x) for every x feature. This means the net model is:
+
+        F(x) = SUM[f_i(x)] for i=[0, 1, ..., (# of features - 1)]
+
+        And no, I will not write it out more than that. You can see how large one f(x) alone is!
+
+        TODO:
+        - Make classifier (just make another class that wraps sig(x) around f(x))
+        - Add more function parts!
+        - Function customization?
+            - Add filter on which parts to ignore if any
+        """
+
+        # Unchanging attributes
+        self.FUNCTION_LENGTH = 19
+        self.USE_TAN = use_tan
+        self.ROUND = round_threshold
+
+        # Changable attributes
+        self._coefs = 0
+        self.coef_bounds = coef_bounds
+        self.num_features = 0
+        self.parameters = 0
+        self.fitted = False
+
+    ## coefs Handling ##
+    @property
+    def coefs(self):
+        return self._coefs
+
+    @coefs.setter
+    def coefs(self, new_coefs):      
+        self._coefs = new_coefs.copy()
+        self._coefs[np.abs(self._coefs) < self.ROUND] = 0
+
+    ## Model Functions ##
+    def predict(self, X:np.ndarray, run_debug=False):
+        """
+        Calculates each ungodly f(x) described in the __init__ for each row in X.
+
+        (Actually iterates over columns/features to speed things up)
+        """
+
+        # Verify the shape of X (and num_features)
+        if run_debug:
+            if len(X.shape) == 1 and self.num_features > 1:
+                raise ValueError(f"Expected X array shape of ({len(X)}, {self.num_features}), got {X.shape}")
+            elif len(X.shape) > 1 and X.shape[1] != self.num_features:
+                raise ValueError(f"Expected X array shape of ({len(X)}, {self.num_features}), got {X.shape}")
             
-        # Return the copied net
-        return newNet
+        # Main function, per feature
+        def f(x, col_index):
+            """Yes this is f(x) from above. Rip readability *shrug*"""
+
+            # Get function coefficients for this feature
+            k = self.coefs[col_index].flatten()
+
+            # Good lord
+            return (k[0] + k[1]*(np.abs(x)**0.5) + k[2]*x + k[3]*(x**2) + k[4]*np.sin(x/3) + k[5]*np.sin(x) + k[6]*np.sin(3*x) + 
+                    k[7]*np.cos(x/3) + k[8]*np.cos(x) + k[9]*np.cos(3*x) + self.USE_TAN*k[10]*np.tan(x/3) + self.USE_TAN*k[11]*np.tan(x) + self.USE_TAN*k[12]*np.tan(3*x) + 
+                    k[13]*np.exp(x/3) + k[14]*np.exp(x) + k[15]*np.exp(3*x) + k[16]*np.exp(-x/3) + k[17]*np.exp(-x) + k[18]*np.exp(-3*x))
+        
+        # Calculate the sum described in INIT
+        result = 0
+        for col_index in range(self.num_features):
+            result += f(X[:, col_index], col_index=col_index)
+
+        return result
+
+    def fit(self, X, Y, Ieta=100, Beta=25, Gamma=50, dropout=0.9, init_adj_max=2, verbose=True):
+        """
+        ## Function
+        Adjusts the model's coefficients for N iterations. Returns the fitted model in-place.
+
+        ## Inputs
+        - X
+            - The input data to make predictions with
+        - Y
+            - The data to test model outputs too
+        - N
+            - The number of iterations to run to attempt to improve the model
+        - beta
+            - Number of adjustments tested to the current best model, per iteration
+        - gamma
+            - Every gamma # of iterations, the scale of the adjustments made to the model
+              coefficients are reduced by 1/2
+        - dropout
+            - (Approximately) The % of coefficients that are NOT adjusted per beta test. These are picked randomly.
+            - Stay in school!
+        - init_adj_max
+            - The initial maximum amplitude that adjustments can make to an individual model coefficient.
+              Having this much larger than the coefficient bounds makes finding improvements slower. Having
+              this value be too small will cause not many meaningful adjustments to be made.
+        - verbose
+            - Whether or not an update of iteration # and current model score is printed (in one line) every
+              10 iterations.
+        """
+
+        # Check if model initial fit complete
+        if not self.fitted:
+            # Generate the coefficients for each feature
+            if len(X.shape) == 2:
+                self.num_features = X.shape[1]
+                self.coefs = np.random.rand(self.num_features, self.FUNCTION_LENGTH)
+            elif len(X.shape) == 1:
+                # Assume a singular feature
+                self.num_features = 1
+                self.coefs = np.random.rand(self.num_features, self.FUNCTION_LENGTH)
+            else:
+                raise ValueError(f"X Array Must be 1 or 2 Dimensional! Not {len(X.shape)}-Dimensional")
+            
+            # Confirm initial fit
+            self.parameters = self.coefs.size
+            self.fitted = True
+
+        # Tweak params for N iterations
+        score = r2d2(self.predict(X), Y)
+        for itr in range(Ieta):
+            add_mode = itr%2
+
+            # Get dropout filter and apply it (discards changing drapout % num of coefficients)
+            filt = np.random.rand(self.num_features, self.FUNCTION_LENGTH) > dropout
+
+            # Get Tweak amplitude adjustment
+            adjustments = []
+            for _ in range(Beta):
+                adjustments.append(filt * init_adj_max*(2**(-(itr) / Gamma)) * 2*(np.random.rand(self.num_features, self.FUNCTION_LENGTH) - 0.5))
+
+            # Apply adjustment to test coeff array
+            og_coefs = self.coefs.copy()
+            test_scores = []
+            for adj in adjustments:
+                if add_mode:
+                    self.coefs = np.clip(og_coefs+adj, self.coef_bounds[0], self.coef_bounds[1])
+                else:
+                    self.coefs = np.clip(og_coefs*adj, self.coef_bounds[0], self.coef_bounds[1])
+                test_scores.append(self.score(X, Y))
+
+            # Test new coef array score
+            best_score = max(test_scores)
+            if best_score > score:
+                score = best_score
+
+                best_adj = adjustments[test_scores.index(best_score)]
+
+                if add_mode:
+                    self.coefs = np.clip(og_coefs+best_adj, self.coef_bounds[0], self.coef_bounds[1])
+                else:
+                    self.coefs = np.clip(og_coefs*best_adj, self.coef_bounds[0], self.coef_bounds[1])
+
+            else:
+                self.coefs = og_coefs
+
+            # Print status
+            if verbose and (itr+1)%10 == 0:
+                print(f"Iteration #{itr+1} | Score = {format(score, '.6f')}        ", end='\r')
+        
+        if verbose:
+            print(f"Iteration #{itr+1} | Score = {format(score, '.6f')}        ")
+
+    def score(self, X, Y, **kwargs):
+        """
+        Return the models R2 score to the given X and Y Data
+        """
+        return r2d2(self.predict(X), Y)
+
+    def CopyNet(self):
+        """
+        Copy a model object to a new variable. Used in similar
+        situations as NumPy's copy method to make an isolated net
+        with the same values and properties as the parent net.
+        """
+        # Check that it is fitted
+        if self.fitted == False:
+            raise ValueError("Model is not yet fitted and therefore cannot be copied")
+
+        return copy.deepcopy(self)
+
+
+# SOUP Classifier (Sub-Ordinary Universal Polynomial)
+class MCSoupClassifier:
+    def __init__(self, coef_bounds = (-1, 1), use_tan=False, round_threshold=1e-5):
+        # Desc
+        """
+        ## Sub-Ordinary Universal Polynomial
+
+        Creates a large fittable funtion/""polynomial"" for every X feature given in .fit
+
+        - coef_bounds
+            - These are the min and max bounds that the coefficients (k_i) in f(x) can take.
+              Feel free to experiment with various ranges, though (-1, 1) tends to work just fine.
+        - use_tan
+            - Three TAN(x) terms are included in f(x), but due to the asymptotic nature of TAN, they
+              can actually hurt model preformance. So, this is disabled by default, but left as a
+              setting to try anyways.
+        - round_threshold
+            - When adjusting the coefficients of the model, if a single coefficient's magnitude falls
+              below this threshold, it is rounded to 0. This makes it easier for the model to completely
+              remove terms from its various f(x) equations if it finds that is better.
+
+
+        ## Technical Breakdown
+
+        For each column of (Normalized!) data, generates a function of best fit of the form:
+
+        f(x) = k0 + k1*(|x|**0.5) + k2*(x) + k3*(x**2) + k4*sin(x/3) + k5*sin(x) + k6*sin(3x) + 
+
+               k7*cos(x/3) + k8*cos(x) + k9*cos(3x) + k10*tan(x/3) + k11*tan(x) + k12*tan(3x) + 
+
+               k13*e**(x/3) + k14*e**(x) + k15*e**(3x) + k16*e**(-x/3) + k17*e**(-x) + k18*e**(-3x)
+
+        There is an f(x) for every x feature. This means the net model is:
+
+        F(x) = SUM[f_i(x)] for i=[0, 1, ..., (# of features - 1)]
+
+        And no, I will not write it out more than that. You can see how large one f(x) alone is!
+
+        TODO:
+        - Make classifier (just make another class that wraps sig(x) around f(x))
+        - Add more function parts!
+        - Function customization?
+            - Add filter on which parts to ignore if any
+        """
+
+        # Unchanging attributes
+        self.FUNCTION_LENGTH = 19
+        self.USE_TAN = use_tan
+        self.ROUND = round_threshold
+
+        # Changable attributes
+        self._coefs = 0
+        self.coef_bounds = coef_bounds
+        self.num_features = 0
+        self.parameters = 0
+        self.fitted = False
+
+    ## coefs Handling ##
+    @property
+    def coefs(self):
+        return self._coefs
+
+    @coefs.setter
+    def coefs(self, new_coefs):      
+        self._coefs = new_coefs.copy()
+        self._coefs[np.abs(self._coefs) < self.ROUND] = 0
+
+    ## Model Functions ##
+    def predict(self, X:np.ndarray, run_debug=False):
+        """
+        Calculates each ungodly f(x) described in the __init__ for each row in X.
+
+        (Actually iterates over columns/features to speed things up)
+        """
+
+        # Verify the shape of X (and num_features)
+        if run_debug:
+            if len(X.shape) == 1 and self.num_features > 1:
+                raise ValueError(f"Expected X array shape of ({len(X)}, {self.num_features}), got {X.shape}")
+            elif len(X.shape) > 1 and X.shape[1] != self.num_features:
+                raise ValueError(f"Expected X array shape of ({len(X)}, {self.num_features}), got {X.shape}")
+            
+        # Main function, per feature
+        def f(x, col_index):
+            """Yes this is f(x) from above. Rip readability *shrug*"""
+
+            # Get function coefficients for this feature
+            k = self.coefs[col_index].flatten()
+
+            # Good lord
+            return (k[0] + k[1]*(np.abs(x)**0.5) + k[2]*x + k[3]*(x**2) + k[4]*np.sin(x/3) + k[5]*np.sin(x) + k[6]*np.sin(3*x) + 
+                    k[7]*np.cos(x/3) + k[8]*np.cos(x) + k[9]*np.cos(3*x) + self.USE_TAN*k[10]*np.tan(x/3) + self.USE_TAN*k[11]*np.tan(x) + self.USE_TAN*k[12]*np.tan(3*x) + 
+                    k[13]*np.exp(x/3) + k[14]*np.exp(x) + k[15]*np.exp(3*x) + k[16]*np.exp(-x/3) + k[17]*np.exp(-x) + k[18]*np.exp(-3*x))
+        
+        # Calculate the sum described in INIT
+        result = 0
+        for col_index in range(self.num_features):
+            result += f(X[:, col_index], col_index=col_index)
+
+        # Classifier Addition
+        result = sig(result)
+
+        return result
+
+    def fit(self, X, Y, Ieta=100, Beta=25, Gamma=50, dropout=0.9, init_adj_max=2, verbose=True):
+        """
+        ## Function
+        Adjusts the model's coefficients for N iterations. Returns the fitted model in-place.
+
+        ## Inputs
+        - X
+            - The input data to make predictions with
+        - Y
+            - The data to test model outputs too
+        - N
+            - The number of iterations to run to attempt to improve the model
+        - beta
+            - Number of adjustments tested to the current best model, per iteration
+        - gamma
+            - Every gamma # of iterations, the scale of the adjustments made to the model
+              coefficients are reduced by 1/2
+        - dropout
+            - (Approximately) The % of coefficients that are NOT adjusted per beta test. These are picked randomly.
+            - Stay in school!
+        - init_adj_max
+            - The initial maximum amplitude that adjustments can make to an individual model coefficient.
+              Having this much larger than the coefficient bounds makes finding improvements slower. Having
+              this value be too small will cause not many meaningful adjustments to be made.
+        - verbose
+            - Whether or not an update of iteration # and current model score is printed (in one line) every
+              10 iterations.
+        """
+
+        # Check if model initial fit complete
+        if not self.fitted:
+            # Generate the coefficients for each feature
+            if len(X.shape) == 2:
+                self.num_features = X.shape[1]
+                self.coefs = np.random.rand(self.num_features, self.FUNCTION_LENGTH)
+            elif len(X.shape) == 1:
+                # Assume a singular feature
+                self.num_features = 1
+                self.coefs = np.random.rand(self.num_features, self.FUNCTION_LENGTH)
+            else:
+                raise ValueError(f"X Array Must be 1 or 2 Dimensional! Not {len(X.shape)}-Dimensional")
+            
+            # Confirm initial fit
+            self.parameters = self.coefs.size
+            self.fitted = True
+
+        # Tweak params for N iterations
+        score = r2d2(self.predict(X), Y)
+        for itr in range(Ieta):
+            add_mode = itr%2
+
+            # Get dropout filter and apply it (discards changing drapout % num of coefficients)
+            filt = np.random.rand(self.num_features, self.FUNCTION_LENGTH) > dropout
+
+            # Get Tweak amplitude adjustment
+            adjustments = []
+            for _ in range(Beta):
+                adjustments.append(filt * init_adj_max*(2**(-(itr) / Gamma)) * 2*(np.random.rand(self.num_features, self.FUNCTION_LENGTH) - 0.5))
+
+            # Apply adjustment to test coeff array
+            og_coefs = self.coefs.copy()
+            test_scores = []
+            for adj in adjustments:
+                if add_mode:
+                    self.coefs = np.clip(og_coefs+adj, self.coef_bounds[0], self.coef_bounds[1])
+                else:
+                    self.coefs = np.clip(og_coefs*adj, self.coef_bounds[0], self.coef_bounds[1])
+                test_scores.append(self.score(X, Y))
+
+            # Test new coef array score
+            best_score = max(test_scores)
+            if best_score > score:
+                score = best_score
+
+                best_adj = adjustments[test_scores.index(best_score)]
+
+                if add_mode:
+                    self.coefs = np.clip(og_coefs+best_adj, self.coef_bounds[0], self.coef_bounds[1])
+                else:
+                    self.coefs = np.clip(og_coefs*best_adj, self.coef_bounds[0], self.coef_bounds[1])
+
+            else:
+                self.coefs = og_coefs
+
+            # Print status
+            if verbose and (itr+1)%10 == 0:
+                print(f"Iteration #{itr+1} | Score = {format(score, '.6f')}        ", end='\r')
+        
+        if verbose:
+            print(f"Iteration #{itr+1} | Score = {format(score, '.6f')}        ")
+
+    def score(self, X, Y, **kwargs):
+        """
+        Return the models R2 score to the given X and Y Data
+        """
+        return r2d2(self.predict(X), Y)
+
+    def CopyNet(self):
+        """
+        Copy a model object to a new variable. Used in similar
+        situations as NumPy's copy method to make an isolated net
+        with the same values and properties as the parent net.
+        """
+        # Check that it is fitted
+        if self.fitted == False:
+            raise ValueError("Model is not yet fitted and therefore cannot be copied")
+
+        return copy.deepcopy(self)
 
 
 ## External Functions ##
-def loadMC(pathOrName:str) -> MCRegressor:
+def save_model(model, name:str):
+    """
+    Load the model object saved under the given name
+    """
+    dump(model, filename=name)
+
+def load_model(path_or_name:str) -> MCNeuralNetwork:
     """
     Uses joblib function 'load' to recall a model object previous saved
     """
     try:
-        return load(pathOrName)
+        return load(path_or_name)
     except:
         raise ValueError("Could not load a model with the given path/name!")
 
-def Extend(baseNet:MCRegressor, d_height:int, imputeType:str = "zeros"):
+def Extend(baseNet:MCNeuralNetwork, d_height:int, imputeType:str = "zeros"):
     """
-    Returns an MCRegressor that has its hidden layers height increased by d_height,
+    Returns an MCNeuralNetwork that has its hidden layers height increased by d_height,
     with the base weight values given from baseNet. 
     The input and output layer sizes are not changed.
 
     ## Inputs
 
     1. baseNet
-        - MCRegressor to use as a starting point for the parameters
+        - MCNeuralNetwork to use as a starting point for the parameters
 
     2. d_height
         - The integer change in height that should be added to the all hidden layers height
@@ -1184,7 +1822,7 @@ def TTSplit(Xdata, Ydata, percentTrain:float = 70):
 
     Returns in the order xTrain, xTest, yTrain, yTest
     
-    1. percentTrain
+    - percentTrain
         - sets the amount of data given back for training
     data, while the rest is sent into the testing data set
     """
@@ -1200,7 +1838,7 @@ def TTSplit(Xdata, Ydata, percentTrain:float = 70):
     dataLen = len(Xdata)
     numTrainSamples = round(dataLen * percentTrain/100)
     numTestSamples = dataLen - numTrainSamples
-    trainIndicies = rn.sample(range(dataLen), numTrainSamples)
+    trainIndicies = sample(range(dataLen), numTrainSamples)
     if sortSets:
         trainIndicies.sort()
 
@@ -1321,6 +1959,368 @@ def dataSelect(X, Y, count:int):
 
     return x, y
 
+def cross_val(model:MCNeuralNetwork, X, Y, N=5, scoreType='r2', return_models=False, 
+              train_depth=2, verbose=True):
+    """
+    Cross validation of model using X and Y with N number of splits
+
+    ## Params
+
+    - N
+        - Number of train/validation split tests to complete
+
+    - scoreType
+        - One of the score/error functions avalible in .score
+        - ['r2', 'sse', 'mae', 'mse', 'rae']
+
+    - return_models
+        - If True, returns (models, weights) from the models tested and their
+          weights derived from their relative overall score to the others.
+
+    - train_depth
+        - 5*train_depth = number of iterations each model is trained to
+
+    - verbose
+        - 0 = No output printing
+        - 1 = Outputs current step/progress
+        - 2 = Prints the current step and each models .fit output
+    """
+
+    if len(X) < N:
+        raise ValueError(f"Not enough data for {N} cycles")
+
+    # Verbose settings
+    fit_verbose = False
+    step_verbose = False
+    if verbose == 1:
+        fit_verbose = False
+        step_verbose = True
+    elif verbose == 2:
+        fit_verbose = True
+        step_verbose = True
+
+    # Main loop
+    if return_models:
+        models = []
+
+    model.fit(X, Y, Ieta=0, verbose=False)
+    base_model = model.CopyNet()
+
+    scores = []
+    step = round(len(X) / N)
+    for n in range(N):
+        # Data Split
+        start = n*step
+        if n == N-1:
+            stop = len(X)
+        else:
+            stop  = (n+1)*step
+
+        X_val = X[start:stop+1]
+        Y_val = Y[start:stop+1]
+
+        if len(X.shape) > 1:
+            X_train = np.row_stack([X[:start], X[stop+1:]])
+        else:
+            X_train = np.array(X[:start].tolist() + X[stop+1:].tolist())
+
+        if len(Y.shape) > 1:
+            Y_train = np.row_stack([Y[:start], Y[stop+1:]])
+        else:
+            Y_train = np.array(Y[:start].tolist() + Y[stop+1:].tolist())
+
+        # Train model
+        model = base_model.CopyNet()
+        model.fit(X_train, Y_train, Ieta=round(5*train_depth), verbose=fit_verbose)
+
+        if return_models:
+            models.append(model)
+
+        # Record model score
+        scores.append(model.score(X_val, Y_val, method=scoreType))
+
+        # Print step results
+        if step_verbose:
+            print(f"Cross-Validation: Step {n+1}/{N} Complete     ", end='\r')
+
+    # Generate model weights if needed
+    if return_models:
+        weights = [m.score(X, Y) for m in models]
+        weights = np.array(weights)
+        weights /= np.sum(weights)
+        weights = weights.tolist()
+
+    # Finish
+    if step_verbose:
+        print(f"Cross-Validation: All Steps Completed")
+        print(f"Mean Model {scoreType} Validation Score/Error = {np.mean(scores)}")
+
+    if return_models:
+        return models, weights
+    else:
+        return scores
+
+def generate_model(X, Y, hidden_layers = [100], 
+             test_activations=['lin', 'relu', 'sig', 'tanh', 'silu', 'dsilu', 'elu'],
+             initial_activations='lin', train_split_percent=5, greedy=True, 
+             target_score=0.99, iterations=5, Ieta=10, Beta=10, Gamma=2, 
+             skip_current=True, verbose=True):
+
+        """
+        Automatically builds and optimizes an MCNeuralNetwork model to the given X/Y data via a round-robin style testing method. 
+
+        Returns the best trained model according to R^2 scoring.
+
+        ### Parameters
+        - X
+            - Input features
+        - Y
+            - Output features
+        - hidden_layers
+            - Number and height of each (if any) of the test models' hidden layers
+        - test_activations
+            - The list of activations to test during the round-robin testing
+        - initial_activations
+            - IF STR: uses this activation for all layers and finds improvements from there
+            - IF LIST: uses the list as the initial model activations 
+                - This allows further testing of a model later on if desired
+        - train_split_percent
+            - Percent of given X/Y data that goes into model training
+            - The rest of data goes into validation data used for comparing model scores
+            - The default is a very low amount for speed and to help the model find true patterns
+        - greedy
+            - Skips to the next layer if any improvement is made testing a current layer's activation
+            - Might require a higher number of iterations if True
+        - target_score
+            - During testing, if the best model's score is at or above this value, training concludes
+        - iterations
+            - The number of cycles preformed during the round-robin testing
+        - Ieta
+            - Number of iterations to use for each model's .fit call
+        - Beta
+            - Batch size to use for each model's .fit call
+        - Gamma
+            - 'Learning rate' decay for each model's .fit call
+        - skip_current
+            - If the current test AF for a layer during training is the model's current AF for that layer,
+              skip that test and move on the the next test AF for that layer
+            - This helps prevent the model form getting stuck on an initial combination like all 'lin' layers.
+        - verbose
+            - If 0: no printed output
+            - If 1: Single-line progress update
+            - If 2: Prints a new line for every next step
+        """
+
+        # Initialize model
+        num_layers = len(hidden_layers) + 2
+        
+        if type(initial_activations) == str:
+            af_start = [initial_activations]*num_layers
+        elif type(initial_activations) == list and len(initial_activations) == num_layers:
+            af_start = initial_activations
+        else:
+            raise ValueError(f"initial_activations input type incorrect (check num of entries if a list)")
+
+        model = MCNeuralNetwork(hidden_counts=hidden_layers, activations=af_start)
+
+        # Make data split
+        X, X_val, Y, Y_val = TTSplit(X, Y, percentTrain=train_split_percent)
+        
+        # Test initial model
+        model.fit(X, Y, Ieta=Ieta, Beta=Beta, Gamma=Gamma, verbose=False)
+        best_score = model.score(X_val, Y_val)
+        best_model = model.CopyNet()
+
+        # Do round-robin improvments
+        num_test_models = iterations*num_layers*len(test_activations)
+        i = 0
+        for I in range(iterations):
+
+            # Go layer-by-layer
+            for li in range(num_layers):
+
+                # Test other activations for this layer
+                for afi, AF in enumerate(test_activations):
+                    # Get current iteration number
+                    i = (afi+1) + li*len(test_activations) + I*num_layers*len(test_activations)
+
+                    # Check for str AF, not a function type
+                    if type(AF) != str:
+                        raise ValueError(f"A test activation is not of type str! (Note external function types not supported)")
+
+                    # Apply AF
+                    initial_af = model.activationFunction[li]
+                    model.activationFunction[li] = AF.upper()
+
+                    # Skip test AF if its the current one
+                    if skip_current and initial_af.upper() == AF.upper():
+                        continue
+
+                    # Test model score
+                    model.fit(X, Y, Ieta=Ieta, Beta=Beta, Gamma=Gamma, verbose=False)
+                    test_score = model.score(X_val, Y_val)
+
+                    if test_score > best_score:
+                        # Keep model as best
+                        best_score = test_score
+                        best_model = model.CopyNet()
+                        improved = True
+
+                        # Check if score is at or beyond target threshold
+                        if best_score >= target_score:
+                            if verbose >= 1:
+                                print(f"Iteration {num_test_models}/{num_test_models} | Best Score = {round(best_score, 4)} | Best Activations = {model.activationFunction}")
+                                # print("== Model score >= target_score ==")
+                                # print("== Generation Completed! ==\n")
+                            return best_model
+                    else:
+                        model.activationFunction[li] = initial_af
+                        improved = False
+
+                    # Progress Update
+                    if verbose == 1:
+                        print(f"Iteration {i}/{num_test_models} | Best Score = {round(best_score, 4)} | Best Activations = {model.activationFunction}       ", end='\r')
+                    elif verbose >= 2:
+                        print(f"Iteration {i}/{num_test_models} | Best Score = {round(best_score, 4)} | Best Activations = {model.activationFunction}")
+
+                    # Finish with layer if using greedy algorithm
+                    if improved and greedy:
+                        break
+
+        # Final Progress Update
+        if verbose >= 1:
+            print(f"Iteration {i}/{num_test_models} | Best Score = {round(best_score, 4)} | Best Activations = {model.activationFunction}")
+            # print("== Generation Completed! ==\n")
+
+        return best_model
+
+def run_module_tests(print_sub_steps=True) -> None:
+    """
+    Run the standardized module tests to verify base functionality. Returns nothing,
+    all info is given in print statements.
+    """
+    
+    # Step 1 (Data)
+    ## Verify TTSplit and normalize
+    X = np.random.rand(100, 3)
+    X[:, 0] = 2*(X[:, 0] - 0.5)
+    X[:, 1] = X[:, 1] + 0.67
+    X[:, 2] = X[:, 2]**2 - 1.5*X[:, 2]
+    Y = np.sum(X, axis=1)
+
+    X, xms = normalize(X)
+    Y, yms = normalize(Y)
+
+    xt, xv, yt, yv = TTSplit(X, Y, percentTrain=75)
+
+    print("Step 1 Done - TTSplit() and normalize() verified\n")
+
+    # Step 2 (MCNeuralNetwork)
+    model = MCNeuralNetwork([10, 10], activations=['lin', 'relu', 'silu', 'lin'])
+    if print_sub_steps:
+        print("Step 2 Part 1/4 Done (make MCNeuralNetwork)")
+
+    model.fit(xt, yt, Ieta=8, Beta=25, Gamma=3, verbose=False, scoreType='mae')
+    if print_sub_steps:
+        print("Step 2 Part 2/4 Done (fit MCNeuralNetwork)")
+
+    model.score(xv, yv)
+    if print_sub_steps:
+        print("Step 2 Part 3/4 Done (score MCNeuralNetwork)")
+
+        print("Cross Validation Scores:", cross_val(model, X, Y, N=3, train_depth=1, verbose=False))
+        print("Step 2 Part 4/4 Done (cross_val on MCNeuralNetwork)")
+    print("Step 2 Done - MCNeuralNetwork verified\n")
+
+    # Step 3 (MCSimpleEnsemble)
+    model = MCSimpleEnsemble(n_estimators=4, hidden_counts=[10, 10], activations=['lin', 'relu', 'silu', 'lin'])
+    if print_sub_steps:
+        print("Step 3 Part 1/4 Done (make MCSimpleEnsemble)")
+
+    model.fit(xt, yt, Ieta=8, Beta=25, Gamma=3, verbose=False, scoreType='mae')
+    if print_sub_steps:
+        print("Step 3 Part 2/4 Done (fit MCSimpleEnsemble)")
+
+    model.score(xv, yv)
+    if print_sub_steps:
+        print("Step 3 Part 3/4 Done (score MCSimpleEnsemble)")
+
+        print("Cross Validation Scores:", cross_val(model, X, Y, N=3, train_depth=1, verbose=False))
+        print("Step 3 Part 4/4 Done (cross_val on MCSimpleEnsemble)")
+    print("Step 3 Done - MCSimpleEnsemble verified\n")
+
+    # Step 4 (SUNN)
+    model = SUNN(hidden_counts=[10, 10], activations=['lin', 'silu', 'dsilu'])
+    if print_sub_steps:
+        print("Step 4 Part 1/4 Done (make SUNN)")
+
+    model.fit(xt, yt, Ieta=8, Beta=25, Gamma=3, verbose=False, scoreType='mae')
+    if print_sub_steps:
+        print("Step 4 Part 2/4 Done (fit SUNN)")
+
+    model.score(xv, yv)
+    if print_sub_steps:
+        print("Step 4 Part 3/4 Done (score SUNN)")
+
+        print("Cross Validation Scores:", cross_val(model, X, Y, N=3, train_depth=1, verbose=False))
+        print("Step 4 Part 4/4 Done (cross_val on SUNN)")
+    print("Step 4 Done - SUNN verified\n")
+
+    # Step 5 (MCSoupRegressor)
+    model = MCSoupRegressor()
+    if print_sub_steps:
+        print("Step 5 Part 1/4 Done (make MCSoupRegressor)")
+
+    model.fit(xt, yt, Ieta=100, Beta=25, Gamma=50, verbose=False)
+    if print_sub_steps:
+        print("Step 5 Part 2/4 Done (fit MCSoupRegressor)")
+
+    model.score(xv, yv)
+    if print_sub_steps:
+        print("Step 5 Part 3/4 Done (score MCSoupRegressor)")
+
+        print("Cross Validation Scores:", cross_val(model, X, Y, N=3, train_depth=1, verbose=False))
+        print("Step 5 Part 4/4 Done (cross_val on MCSoupRegressor)")
+    print("Step 5 Done - MCSoupRegressor verified\n")
+
+    # Step 6 (MCSoupClassifier)
+    model = MCSoupClassifier()
+    if print_sub_steps:
+        print("Step 6 Part 1/4 Done (make MCSoupClassifier)")
+
+    model.fit(xt, yt, Ieta=100, Beta=25, Gamma=50, verbose=False)
+    if print_sub_steps:
+        print("Step 6 Part 2/4 Done (fit MCSoupClassifier)")
+
+    soup_score = model.score(xv, yv)
+    if print_sub_steps:
+        print("Step 6 Part 3/4 Done (score MCSoupClassifier)")
+
+        print("Cross Validation Scores:", cross_val(model, X, Y, N=3, train_depth=1, verbose=False))
+        print("Step 6 Part 4/4 Done (cross_val on MCSoupClassifier)")
+    print("Step 6 Done - MCSoupClassifier verified\n")
+
+    # Step 7 (Save/Load)
+    save_model(model, "soup")
+    if print_sub_steps:
+        print("Step 7 Part 1/4 Done (save_model on MCSoupClassifier)")
+
+    soup = load_model("soup")
+    if print_sub_steps:
+        print("Step 7 Part 2/4 Done (load_model on MCSoupClassifier)")
+
+    if abs(soup_score-soup.score(xv, yv)) < 1e-6:
+        if print_sub_steps:
+            print("Step 7 Part 3/4 Done (score check on loaded MCSoupClassifier)")
+    else:
+        print("Step 7 Part 3/4 Done Incorrectly! (loaded model score != true model score)")
+
+    os.remove('soup')
+    if print_sub_steps:
+        print("Step 7 Part 4/4 Done (removed test save model 'soup')")
+    print("Step 7 Done - save_model and load_model verified\n")
+
+
 
 ## Activation Functions ##
 # Identity
@@ -1331,22 +2331,20 @@ def relu(calcVec):
     calcVec[calcVec < 0] = 0
     return calcVec
 def silu(calcVec):
-    return calcVec / (1 + 2.7182818284**(-calcVec))
+    return calcVec / (1 + np.exp(-np.clip(calcVec, -7e2, None)))
 # SIG-Like
 def sig(calcVec):
-    return 1 / (1 + 2.7182818284**(-calcVec))
+    return 1 / (1 + np.exp(-calcVec))
 def dsilu(calcVec):
-    return sig(calcVec)*(1 + calcVec*(1 - sig(calcVec)))
+    return sig(calcVec) * (1 + calcVec * (1 - sig(calcVec)))
 def tanh(calcVec):
     return np.tanh(calcVec)
 # Exponential-Like
 def elu(calcVec):
-    calcVec = 0.4 * (2.7182818284**calcVec - 1)
-    return calcVec
+    return 0.4 * (np.expm1(np.clip(calcVec, None, 7e2)))
 # Logirithmic-like
 def root(calcVec):
-    calcVec = (np.arctan(calcVec) * np.abs(calcVec)**0.5) / 1.5
-    return calcVec
+    return np.arctan(calcVec) * np.abs(calcVec)**0.5 / 1.5
 # dRELU-Like
 def sqr(calcVec):
     calcVec[calcVec <= 0] = 0
@@ -1362,8 +2360,7 @@ def resu2(calcVec):
     calcVec[calcVec < 0] = 0
     return abs(np.sin(calcVec))*calcVec
 def exp(calcVec):
-    calcVec[calcVec < -0.4] = 0
-    return calcVec
+    return calcVec**2
 
 
 ## Helper/Smol Functions ##
@@ -1402,43 +2399,6 @@ def applyActi(calcVec:np.ndarray, activationFunction):
     except:
         raise ValueError(f"Given hidden function ({activationFunction}) is not of the avalible types!")
 
-def fastCalc(net:MCRegressor, inVector:np.ndarray):
-    """
-    Mostly benefits smaller nets, especially with less than a few layers. Updated to 
-    allow for using activation function on the input vector before any network calculations
-    are done.
-    
-    ### NOTICE ###
-    By voiding data shape checks, this is the equivalent of .Calculate() for a net, but
-    takes less time. If you're using this, that means you are confident the inVector 
-    data you are using is correct, and/or you do not need the many error checks that 
-    .Calculate has.
-
-    This function still supports single float inputs/outputs, just as .Calculate does.
-    """
-    # Basic check - Shape vector to what it should be
-    # If this doesn't work, sounds like a you problem :P
-    inVector = inVector.reshape((net.inSize, 1))
-
-    # Possible fast calculations
-    if net.sizes[0] == 1 and len(net.sizes) == 2: # ~45% of regular calc time
-        inVector = applyActi(inVector, net.activationFunction[0])
-        inVector = applyActi(inVector*net.weights[0], net.activationFunction[1])
-
-    else:   # ~73% of regular calc time
-        inVector = applyActi(inVector, net.activationFunction[0])
-        for i in range(1, len(net.sizes)):
-            if i != 0:
-                inVector = inVector.reshape((inVector.size, 1))
-            inVector = applyActi(sum(inVector*net.weights[i-1]), net.activationFunction[i])
-
-    # Return the vector shaped as a column vector
-    if inVector.size == 1:     # if a single number
-        return inVector[0]
-    else:                      # all other vectors
-        inVector = inVector.reshape(inVector.size, 1)
-        return inVector
-
 def r2d2(yModel:np.ndarray, yTrue:np.ndarray):
     """
     Returns the R^2 value of the model values (yModel) against the true
@@ -1451,9 +2411,19 @@ def r2d2(yModel:np.ndarray, yTrue:np.ndarray):
     if type(yTrue) == list:
         yTrue = np.array(yTrue)
 
+    # Check if needs to be flattened
+    # if len(yTrue.shape) == 1 and len(yModel.shape) > 1:
+    #     yModel = yModel.flatten()
+    
+    # if len(yTrue.shape) > 1:
+    #     if yTrue.shape[1] == 1:
+    #         yTrue = yTrue.flatten()
+    #         yModel = yModel.flatten()
+    yTrue = yTrue.reshape(yModel.shape)
+
     # R2 Calc
     yMean = np.mean(yTrue)
-    RES = np.sum((yTrue - yModel) ** 2)
+    RES = np.sum(np.clip(yTrue - yModel, -1e154, 1e154) ** 2)
     TOT = np.sum((yTrue - yMean) ** 2)
     if TOT == 0:
         TOT = np.inf
@@ -1504,6 +2474,61 @@ def raeScore(yTrue:np.ndarray, yPred:np.ndarray):
     # Get/return RAE
     return np.e ** (-avgScore)
 
+def normalize(array):
+    """
+    Returns the normalized array and the columns (mean, st. dev.)
+
+    Normalizes a given array (per col.) such that each point is the z-score for the given columns mean and standard deviation.
+
+    Columns with only two unique values are automatically converted to be just 0's and 1's
+    """
+
+    # Normalize depending on if many cols or one
+    ms_data = []
+    if len(array.shape) > 1:
+        # Normalize col-by-col
+        for ci in range(array.shape[1]):
+            # Check if is a bool col
+            if len(set(array[:, ci])) == 2:
+                vals = set(array[:, ci])
+                for i, val in enumerate(vals):
+                    array[array == val] = i
+
+                # Dont make M/S adjustments
+                ms_data.append((0, 1))
+                continue
+
+            # Get Mean and STD
+            M = np.mean(array[:, ci])
+            S = np.std(array[:, ci])
+            ms_data.append((M, S))
+
+            # Adjust col in array
+            array[:, ci] -= M
+            array[:, ci] /= S
+            
+    else:
+        # Normalize single-col array
+        M = np.mean(array)
+        S = np.std(array)
+        ms_data.append((M, S))
+
+        array -= M
+        array /= S
+
+    return array, ms_data
+
+
+# Multiprocessing for getting many model's calculation to the same array
+def multiNetScore(netList, xArr, yTrue, scoreType='r2', useFast=True, processes=10):
+    # Get/return the model's scores
+    pool = Pool(processes=processes)
+    return pool.starmap(func=score_, iterable=[(net, xArr, yTrue, scoreType, useFast) for net in netList])
+
+def score_(net, xArr, yTrue, scoreType, useFast=True):
+    # Alt. predict form for MP variable handling
+    return net.score(xArr=xArr, yTrue=yTrue, useFast=useFast, method=scoreType)
+
 
 ## Neat Paper/Other References ##
 notes = """
@@ -1523,6 +2548,252 @@ https://doi.org/10.1016/j.neunet.2017.12.012.
 
 
 ## Old / Deprecated ##
+def debug_calculate(self, inVector):
+    """
+    Slower form of model calculation used for more error handling / debugging
+
+    Returns the neural net's calculation for a given input vector. If the net used has an input size
+    of one, a single float value can be given (array type not required).
+
+    ## Inputs:
+
+    1 - inVector
+    - Type == NumPy Array
+    - Size == (netInputCount, 1) or (1, netInputCount)
+    - Note: 
+        - If the net input size is 1, then a float can be given and a vector form is not required.
+    """  
+
+    # Handling if a single number/float was given not in an array form
+    if type(inVector) != np.ndarray:
+        if self.inSize == 1:
+            inVector = np.array(inVector).reshape(1, 1)
+        else:
+            raise ValueError(f"Net input size of 1 expected, got {self.inSize} instead")
+        
+    # Check for correct shape (x, 1) or (1, x)
+    m1 = np.size(inVector, axis=0)
+    try:
+        m2 = np.size(inVector, axis=1)
+    except:
+        m2 = 0
+    if m1*m2 == m1 or m1*m2 == m2:
+        # One of the dimensions is one, so the input is indeed a vector
+        pass
+    else:
+        # The input is not a vector but instead an array/matrix
+        raise ValueError(f"Expected inVector of size {(self.inSize, 1)} or {(1, self.inSize)}, got {(np.size(inVector, axis=0), np.size(inVector, axis=1))})")
+
+    # Handling for row vectors (convert to column vectors)
+    passedRowTest = False
+    if inVector.size == np.size(inVector, axis=0): # Check if already correct form
+        passedRowTest = True
+    elif inVector.size == np.size(inVector, axis=1): # If all entries are oriented along the horizontal axis
+        # Convert row vectors to column vectors
+        if self.inSize != 1:
+            if inVector.size == np.size(inVector, 1):
+                inVector = inVector.T
+                passedRowTest = True
+        else:
+            # Just a single value so continue
+            passedRowTest = True
+    
+    # Calculate if the input vector is indeed a column vector
+    if inVector.size == np.size(inVector, axis=0) and passedRowTest:
+        # Vector has the right column vector shape -- now check for correct size
+        if inVector.size == self.inSize:
+            # Vector is of the right shape and size so continue
+
+            # Go through all of weights calculating the next vector
+            calcVec = inVector # Start the calcVector with the given input vector
+            
+            # Triple-checking size throughout forward prop.
+            calcVec = calcVec.reshape(calcVec.size, 1)
+
+            # Apply first activation layer on input vector
+            calcVec = applyActi(calcVec, self.activationFunction[0])
+
+            for i, wi in enumerate(self.weights):
+                # Forward propogation
+                calcVec = sum(calcVec*wi)
+
+                # Use the net's activation function for the current space
+                hiddenFunction = self.activationFunction[i+1]
+
+                # Apply the activation function
+                calcVec = applyActi(calcVec, hiddenFunction)
+
+                # Triple-checking size throughout forward prop.
+                calcVec = calcVec.reshape(calcVec.size, 1)
+
+            # Handling for single-number outputs (free it from the array at the end)
+            if self.outSize == 1:
+                calcVec = calcVec[0][0]
+
+            return calcVec
+        
+        # Vector is not of the correct shape for the used neural net
+        else:
+            raise ValueError(f"inVector size ({inVector.size}) does not match the net input size ({self.inSize})")
+    else:
+        raise RuntimeError("Failed to enter Calculation loop! (This shouldn't have happened)")
+
+def build_model(X, Y, max_hidden_layers=2, base_height=50, 
+                activation_tests=['lin', 'silu', 'dsilu', 'tanh', 'elu', 'root'],
+                validation_size=0.3, training_depth=1,
+                test_ends=False, verbose=True):
+
+    ## Training settings ##
+    model_layer_sizes = []
+    model_activations = []
+    input_activation = 'lin'
+    output_activation = 'lin'
+
+    I = round(10 * training_depth)
+    B = round(10 * training_depth)
+    G = round(1.5 * training_depth)
+
+    x_train, x_val, y_train, y_val = TTSplit(X, Y, percentTrain=100*(1 - validation_size))
+
+
+    ## Main loop (For First Layer Activation) ##
+    if test_ends:
+        initial_scores = []
+        for i, l1 in enumerate(activation_tests):
+            # Make test model
+            model = MCNeuralNetwork(hidden_counts=[], activations=[l1, 'lin'])
+
+            # Test model
+            model.fit(x_train, y_train, Ieta=I, Beta=B, Gamma=G, verbose=False)
+            initial_scores.append(model.score(x_val, y_val))
+
+            # Progress
+            if verbose:
+                print(f"Step 0a Progress: {i+1}/{len(activation_tests)}     ", end='\r')
+        
+        if verbose:
+            print(f"Step 0a Progress: {len(activation_tests)}/{len(activation_tests)} - Done!")
+            print(f"Current Model Score = {max(initial_scores)}\n")
+
+        # Get best input activation, add to overall model
+        input_activation = (activation_tests[initial_scores.index(max(initial_scores))])
+
+
+    ## Main loop (For Last Layer Activation) ##
+    if test_ends:
+        initial_scores = [max(initial_scores)]
+        for i, l1 in enumerate(activation_tests[1:]):
+            # Make test model
+            model = MCNeuralNetwork(hidden_counts=[], activations=[input_activation, l1])
+
+            # Test model
+            model.fit(x_train, y_train, Ieta=I, Beta=B, Gamma=G, verbose=False)
+            initial_scores.append(model.score(x_val, y_val))
+
+            # Progress
+            if verbose:
+                print(f"Step 0b Progress: {i+1}/{len(activation_tests)}     ", end='\r')
+
+        if verbose:
+            print(f"Step 0b Progress: {len(activation_tests)}/{len(activation_tests)} - Done!")
+            print(f"Current Model Score = {max(initial_scores)}\n")
+
+        # Get best input activation, add to overall model
+        output_activation = (activation_tests[initial_scores.index(max(initial_scores))])
+
+
+    ## Main loop (For Hidden Layers) ##
+    for layer in range(max_hidden_layers):
+        scores = []
+
+        # Add another hidden layer
+        model_layer_sizes.append(base_height)
+
+        # Test current layer for its best activation
+        for i, l1 in enumerate(activation_tests):
+            # Make test model
+            model = MCNeuralNetwork(hidden_counts=model_layer_sizes, activations=[input_activation] + model_activations + [l1] + [output_activation])
+
+            # Test model
+            model.fit(x_train, y_train, Ieta=I, Beta=B, Gamma=G, verbose=False)
+            scores.append(model.score(x_val, y_val))
+
+            # Progress
+            if verbose:
+                print(f"Step {layer+1}/{max_hidden_layers} Progress: {i+1}/{len(activation_tests)}     ", end='\r')
+
+        # Get best input activation, add to overall model
+        model_activations.append(activation_tests[scores.index(max(scores))])
+        print(f"Step {layer+1}/{max_hidden_layers} Progress: {len(activation_tests)}/{len(activation_tests)} - Done!")
+        print(f"Current Model Score = {max(scores)}\n")
+
+
+    ## Test Hidden Layer Sizes for Improvements
+
+
+    ## Make, Train, and Return the Best Model ##
+    if verbose:
+        print(f"==== Fitting the Best Model Architecture ====")
+
+    model = MCNeuralNetwork(hidden_counts=model_layer_sizes, activations=[input_activation] + model_activations + [output_activation])
+    model.fit(x_train, y_train, Ieta=12, Gamma=2, verbose=verbose)
+    val_score = model.score(x_val, y_val)
+
+    if verbose:
+        print(f"Validation Score = {val_score}")
+
+    return model
+
+def fastCalc(net:MCNeuralNetwork, inVector:np.ndarray):
+    """
+    **** Deprecated since version 1.4.3 ****
+    
+    **** Replaced by improved default calculation method ****
+
+    Mostly benefits smaller nets, especially with less than a few layers. Updated to 
+    allow for using activation function on the input vector before any network calculations
+    are done.
+    
+    ### NOTICE ###
+    By voiding data shape checks, this is the equivalent of .Calculate() for a net, but
+    takes less time. If you're using this, that means you are confident the inVector 
+    data you are using is correct, and/or you do not need the many error checks that 
+    .Calculate has.
+
+    This function still supports single float inputs/outputs, just as .Calculate does.
+    """
+    ### Old Method
+    # # Basic check - Shape vector to what it should be
+    # # If this doesn't work, sounds like a you problem :P
+    # inVector = inVector.reshape((net.inSize, 1))
+
+    # # Possible fast calculations
+    # if net.sizes[0] == 1 and len(net.sizes) == 2: # ~45% of regular calc time
+    #     inVector = applyActi(inVector, net.activationFunction[0])
+    #     inVector = applyActi(inVector*net.weights[0], net.activationFunction[1])
+
+    # else:   # ~73% of regular calc time
+    #     inVector = applyActi(inVector, net.activationFunction[0])
+    #     for i in range(1, len(net.sizes)):
+    #         if i != 0:
+    #             inVector = inVector.reshape((inVector.size, 1))
+    #         inVector = applyActi(sum(inVector*net.weights[i-1]), net.activationFunction[i])
+
+    ### New Method
+    inVector = inVector.reshape((net.inSize))
+    inVector = applyActi(inVector, net.activationFunction[0])
+    for i in range(1, len(net.sizes)):
+        inVector = applyActi(np.dot(inVector, net.weights[i-1]), net.activationFunction[i])
+
+    # Return the vector shaped as a column vector
+    if inVector.size == 1:     # if a single number
+        return inVector[0]
+    else:                      # all other vectors
+        inVector = inVector.reshape(inVector.size, 1)
+        if len(inVector.shape) >= 3:
+            raise ValueError("Calculation Vector size >= 3")
+        return inVector
+
 def netMetrics(net, xArr:np.ndarray, yArr:np.ndarray, 
                method:str = 'sse', useFast:bool = True):
     """
@@ -1540,10 +2811,8 @@ def netMetrics(net, xArr:np.ndarray, yArr:np.ndarray,
     """
 
     # Get predictions
-    if type(net) == MCRegressor:
+    if type(net) in [MCNeuralNetwork, SUNN]:
         yHat = net.predict(xArr, useFast=useFast)
-    elif type(net) == SUNN:
-        yHat = net.predict_su(xArr)
     else:
         raise ValueError(f"Unrecognized model type: {type(net)}")
 
@@ -1568,7 +2837,7 @@ def netMetrics(net, xArr:np.ndarray, yArr:np.ndarray,
     else:
         raise ValueError(f"Given score type {method} is not one of the avalible types.")
 
-def Forecast(Net:MCRegressor, inputData, comparisonData=[], plotResults=False, useFast:bool=True):
+def Forecast(Net:MCNeuralNetwork, inputData, comparisonData=[], plotResults=False, useFast:bool=True):
     """
     **** Deprecated since version 1.4.0 ****
 
@@ -1599,11 +2868,11 @@ def Forecast(Net:MCRegressor, inputData, comparisonData=[], plotResults=False, u
     """
 
     # Load in the requested neural net
-    if type(Net) not in [str, MCRegressor]:
-        raise TypeError(f"netName should be a string or MCRegressor! Not {type(Net)} ")
+    if type(Net) not in [str, MCNeuralNetwork]:
+        raise TypeError(f"netName should be a string or MCNeuralNetwork! Not {type(Net)} ")
     if type(Net) == str:
-        net = loadMC(Net)
-    elif type(Net) == MCRegressor:
+        net = load_model(Net)
+    elif type(Net) == MCNeuralNetwork:
         net = Net
 
     # Shape input data into matrix from the data vectors
@@ -1840,7 +3109,7 @@ def oldLoadNet(name:str):
             strActivations.append("LIN")
 
     # From the size, construct the net frame
-    net = MCRegressor(inSize, hiddenSize, outSize, strActivations)
+    net = MCNeuralNetwork(inSize, hiddenSize, outSize, strActivations)
 
     # Load in the saved net weights
     for i in range(len(net.sizes) - 1):
@@ -1856,7 +3125,7 @@ def oldLoadNet(name:str):
     # Return the generated neural net
     return net
 
-def oldSaveNN(Net:MCRegressor, name: str):
+def oldSaveNN(Net:MCNeuralNetwork, name: str):
         """
         **** Deprecated since version 1.4.0 ****
 
@@ -1921,7 +3190,7 @@ def oldSaveNN(Net:MCRegressor, name: str):
             except:
                 continue
 
-def oldFastCalc(net:MCRegressor, inVector:np.ndarray):
+def oldFastCalc(net:MCNeuralNetwork, inVector:np.ndarray):
     """
     **** Deprecated since version 1.2.2 ****
 
@@ -2018,7 +3287,7 @@ def thinData(xData, yData, numPoints:int):
     # Finish
     return np.array(xThinData), np.array(yThinData), np.array(xPlotData)
 
-def genTrain(net:MCRegressor, xArr:np.ndarray, yArr:np.ndarray, iterations:int = 1000, 
+def genTrain(net:MCNeuralNetwork, xArr:np.ndarray, yArr:np.ndarray, iterations:int = 1000, 
                     batchSize:int = 0, gamma:int = 50, weightSelection:str = None, 
                     R2Goal = 0.999, Silent:bool = False, useFast:bool = False):
     """
@@ -2063,7 +3332,7 @@ def genTrain(net:MCRegressor, xArr:np.ndarray, yArr:np.ndarray, iterations:int =
     """
 
     # Verify data types
-    if type(net) == MCRegressor and type(xArr) == np.ndarray and type(yArr) == np.ndarray:
+    if type(net) == MCNeuralNetwork and type(xArr) == np.ndarray and type(yArr) == np.ndarray:
         # print("All data is good")
         pass
     else:
@@ -2134,7 +3403,7 @@ def genTrain(net:MCRegressor, xArr:np.ndarray, yArr:np.ndarray, iterations:int =
         print()
     return net, currentR2
 
-def OldTrain(Net:MCRegressor, inputData, yData, startingTweakAmp=0.8, 
+def OldTrain(Net:MCNeuralNetwork, inputData, yData, startingTweakAmp=0.8, 
           plotLive=False, plotResults=False, normalizeData=False, 
           hiddenFunc="ELU", trainWeights='all', maxIterations=1000, 
           blockSize=30, Silent=False):
@@ -2221,11 +3490,11 @@ def OldTrain(Net:MCRegressor, inputData, yData, startingTweakAmp=0.8,
     """
 
     # Load in the requested neural net
-    if type(Net) not in [str, MCRegressor]:
+    if type(Net) not in [str, MCNeuralNetwork]:
         raise TypeError(f"netName should be a string or AdvNet! Not {type(Net)} ")
     if type(Net) == str:
-        net = loadMC(Net)
-    elif type(Net) == MCRegressor:
+        net = load_model(Net)
+    elif type(Net) == MCNeuralNetwork:
         net = Net
 
     # Shape input data into matrix from the data vectors
@@ -2415,7 +3684,7 @@ def OldTrain(Net:MCRegressor, inputData, yData, startingTweakAmp=0.8,
     
     return net, avgError
 
-def CycleTrain(Net:MCRegressor, inputData, yData, startingTweakAmp=0.8, 
+def CycleTrain(Net:MCNeuralNetwork, inputData, yData, startingTweakAmp=0.8, 
           plotLive=False, plotResults=False, normalizeData=False, 
           hiddenFnc="ELU", maxIterations=1000, maxCycles=5,
           blockSize=30, Silent=False):
@@ -2553,4 +3822,3 @@ def CycleTrain(Net:MCRegressor, inputData, yData, startingTweakAmp=0.8,
 
     # Finish by giving back the improved net and its final mean error
     return Net, bestError
-
