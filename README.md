@@ -13,7 +13,7 @@ https://pypi.org/project/mcnets/
 Below is a quick code meant to show a few ways to make the NeuralNetwork models, and use them in a cross-validation with the built-in cross_val function.
 
 ```
-import main as mc
+import mcnets as mc
 import numpy as np
 from sklearn.datasets import load_diabetes
 
