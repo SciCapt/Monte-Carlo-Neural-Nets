@@ -1,6 +1,6 @@
 # Monte-Carlo-Neural-Networks
 
-## Overview / Lore
+## Overview
 
 Originally a hobby project meant for learning about Neural Networks and Machine Learning, this has become a novel approach to training neural networks that are on par with models such as the MLPRegressor featured in SciKit-Learn. Instead of using methods like backpropagation for training, semi-random (monte-carlo-like) modifications are made to find improvements which means the training can be done quite fast.
 
