@@ -10,14 +10,13 @@ import numpy as np
 from joblib import load, dump
 
 # MCNet Dependancies
-from activations import *
-
+from mcnets.activations import *
 
 # Primary Monte-Carlo Neural Network Model
 class NeuralNetwork:
     def __init__(self, hidden_counts:'list[int]'=[100], activations=['relu'], input_acti='identity', output_acti='identity', 
                  max_iter=1000, learning_rate_init=1, learning_rate_mode=['adaptive', 'dynamic', 'constant'], gamma=0.0025, 
-                 n_iter_no_change=100, l2_reg=0.0001, l1_reg=0, verbose=False):
+                 n_iter_no_change=100, l2_reg=0.00001, l1_reg=0, verbose=False):
         """
         Neural Network that uses Monte-Carlo training. Can be either a regressor or classifier depending on the
         output_activation used (i.e. use sigmoid/sig for a classifier).
@@ -147,7 +146,7 @@ class NeuralNetwork:
         return X
     
     def score(self, X, Y, score_type='r2'):
-        return score(self, X, Y, method=score_type) - self.l2_reg*np.sum([np.sum(wi**2) for wi in self.get_weights()]) - self.l1_reg*np.sum([np.sum(np.abs(wi)) for wi in self.get_weights()])
+        return score_model(self, X, Y, method=score_type) - self.l2_reg*np.sum([np.sum(wi**2) for wi in self.get_weights()]) - self.l1_reg*np.sum([np.sum(np.abs(wi)) for wi in self.get_weights()])
     
     def fit(self, X, Y, score_type='r2'):
         # Generate model
@@ -162,6 +161,11 @@ class NeuralNetwork:
 
             # Complete
             self._is_fitted = True
+
+        # Single Column inputs - check for correct size (len(X), 1)
+        if len(X.shape) == 1:
+            print(f"MCNet WARN: X seems to be 1 column but has shape {X.shape} not {(len(X), 1)} (this will be automatically corrected but reshape the X array to avoid this warning).")
+            X = X.reshape((len(X), 1))
 
         # Initial stats
         score = self.score(X, Y, score_type=score_type)
@@ -206,6 +210,29 @@ class NeuralNetwork:
 
     def load(self, name:str):
         self = load_model(name=name)
+
+    def _params_for_optuna(self):
+        """Returns a dictionary of params and their possible values either via tuples of (min_val, max_val)
+        or lists for categorical params.
+        
+        Params not included in the dictionary:
+        - `hidden_counts`
+        - `activations`
+        - `verbose`
+        
+        These params should be specified or customized as desired in an optimizer."""
+
+        return {
+            'input_acti': ['LIN' 'RELU', 'LRELU', 'SILU', 'SIG', 'DSILU', 'TANH', 'ELU', 'ROOT', 'SQR', 'RND'],
+            'output_acti': ['LIN' 'RELU', 'LRELU', 'SILU', 'SIG', 'DSILU', 'TANH', 'ELU', 'ROOT', 'SQR', 'RND'],
+            'max_iter': (1, 16000),
+            'learning_rate_init': (1e-3, 10),
+            'learning_rate_mode': ['adaptive', 'dynamic', 'constant'],
+            'gamma': (1e-6, 10),
+            'n_iter_no_change': (1, 8000),
+            'l2_reg': (1e-9, 1),
+            'l1_reg': (1e-9, 1),
+        }
 
 
 ## External Functions ##
@@ -383,8 +410,8 @@ def cross_val(model, X, Y, cv=5, score_type='r2', return_models=False, verbose=0
         if return_models:
             models.append(model)
 
-        # Record model score=
-        scores.append(score(model, X_val, Y_val, method=score_type))
+        # Record model score
+        scores.append(score_model(model, X_val, Y_val, method=score_type))
 
         # Print step results
         if step_verbose:
@@ -407,9 +434,9 @@ def cross_val(model, X, Y, cv=5, score_type='r2', return_models=False, verbose=0
     else:
         return np.array(scores)
 
-def score(model, X:np.ndarray, ytrue:np.ndarray, method='r2'):
+def score(ytrue, ypred, method='r2') -> float:
     """
-    Main scorer function given a model, input data, and true values.
+    Main scorer function given a model's output and true values.
 
     - `method`
         - 'r2': R^2 Score
@@ -420,15 +447,8 @@ def score(model, X:np.ndarray, ytrue:np.ndarray, method='r2'):
         - 'acc'/'accuracy': Accuracy Score
     """
 
-    # Force lowercase
+    # Force correct case
     method = method.lower()
-    
-    # Get model output
-    ypred = model.predict(X)
-
-    # For callable scorers given
-    if callable(method):
-        return method(model, X, ytrue)
 
     ## R^2 Method ##
     if method == 'r2':
@@ -458,6 +478,36 @@ def score(model, X:np.ndarray, ytrue:np.ndarray, method='r2'):
     else:
         raise ValueError(f"Given score type '{method.upper()}' is not one of the avalible types.")
 
+def score_model(model, X:np.ndarray, ytrue:np.ndarray, method='r2') -> float:
+    """
+    Main scorer function given a model, input data, and true values.
+
+    - `method`
+        - 'r2': R^2 Score
+        - 'sse': -Sum Squared Error
+        - 'mre': -Root Mean Squared Error
+        - 'mae': -Mean Absolute Error
+        - 'rae': Custom R^2-like Score
+        - 'acc'/'accuracy': Accuracy Score
+        - Function: form of `scorer(model, X, ytrue)`
+    """
+
+    # Force lowercase
+    method = method.lower()
+    
+    # Get model output
+    ypred = model.predict(X)
+
+    # For callable scorers given
+    if callable(method):
+        return method(model, X, ytrue)
+    
+    # Otherwise use main score function
+    else:
+        return score(ytrue, ypred, method=method)
+
+
+
 
 ## Helper/Smol Functions ##
 def r2d2(yModel:np.ndarray, yTrue:np.ndarray):
@@ -480,6 +530,7 @@ def r2d2(yModel:np.ndarray, yTrue:np.ndarray):
     #     if yTrue.shape[1] == 1:
     #         yTrue = yTrue.flatten()
     #         yModel = yModel.flatten()
+    
     yTrue = yTrue.reshape(yModel.shape)
 
     # R2 Calc
