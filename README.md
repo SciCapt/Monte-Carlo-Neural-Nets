@@ -2,7 +2,7 @@
 
 ## Overview
 
-Originally a hobby project meant for learning about Neural Networks and Machine Learning, this has become a novel approach to training neural networks that are on par with models such as the MLPRegressor featured in SciKit-Learn. Instead of using methods like backpropagation for training, semi-random (monte-carlo-like) modifications are made to find improvements which means the training can be done quite fast.
+Originally a challenge for myself to make a Neural Network with a unique training style, this has become an approach to training neural networks that are on par with models such as the MLPRegressor featured in SciKit-Learn. Instead of using methods like backpropagation for training, a basis of random (Monte Carlo-like) modifications are made to find improvements.
 
 An exciting extension of this training method is that it can be applied to any machine learning model that simply consists of groups of numerical parameters/coefficients (i.e. the weights and biases in neural networks).
 
@@ -45,15 +45,9 @@ print(f"Hidden Layer Activations: {models[best_ind].activations}")
 ```
 
 ## Current Ability
-Before V2.0.0, directly comparing the old neural network model (MCNeuralNetwork) to something like the MLPRegressor in SciKit-Learn just simply wasn't fair. However, with the new speed and accuracy improvements that warranted removing all V1.5.0 and earlier models, the comparison is now equal.
+Before V2.0.0, directly comparing the old neural network model (MCNeuralNetwork) to something like the MLPRegressor in SciKit-Learn just wasn't fair. However, with the new speed and accuracy improvements that warranted removing all V1.5.0 and earlier models, the comparison is now equal in a variety of situations.
 
-The below information is for a test of MCNeuralNetwork, NeuralNetwork, and MLPRegressor models fitted to the same data (sklearn load_diabetes) scored off of a 10-CV cross-validation.
-
-### MCNeuralNetwork (Worst)
-- Time Training: 22.6s
-- CV R^2 Score (1 is best): -2.8694 +- 0.8680
-
-![](Examples/V200_oldmcnn.png)
+The information below is for a test of the current NeuralNetwork, SKlearn's MLPRegressor and the old MCNeuralNetwork models fitted to the same data (sklearn load_diabetes) scored off of a 10-CV cross-validation.
 
 ### NeuralNetwork (New Best)
 - Time Training: 3.4s!
@@ -66,6 +60,12 @@ The below information is for a test of MCNeuralNetwork, NeuralNetwork, and MLPRe
 - CV R^2 Score (1 is best): 0.4763 +- 0.1301
 
 ![](Examples/V200_mlpreg.png)
+
+### MCNeuralNetwork (Worst)
+- Time Training: 22.6s
+- CV R^2 Score (1 is best): -2.8694 +- 0.8680
+
+![](Examples/V200_oldmcnn.png)
 
 ## Speed Tests
 Below are some stats on the effective speeds of the old-generation MCNeuralNetworks with various hidden layer dimensions. While the exact speed values and calculation times are no longer relevant, the comparison of models with equal parameters but vastly different dimensions of their hidden layers is still quite important.
