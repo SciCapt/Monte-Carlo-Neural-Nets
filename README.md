@@ -85,19 +85,19 @@ Before V2.0.0, directly comparing the old neural network model (MCNeuralNetwork)
 
 The information below is for a test of the current NeuralNetwork, SKlearn's MLPRegressor and the old MCNeuralNetwork models fitted to the same data (sklearn load_diabetes) scored off of a 10-CV cross-validation.
 
-### NeuralNetwork (New Best)
+### NeuralNetwork (Current Package NN; Huge Improvements from Pre-V2.0.0)
 - Time Training: 3.4s!
 - CV R^2 Score (1 is best): 0.4718 +- 0.1040
 
 ![](Examples/V200_newmcnn.png)
 
-### MLPRegressor (For Comparison)
+### MLPRegressor (From SciKit-Learn; For Comparison)
 - Time Training: 44.5s
 - CV R^2 Score (1 is best): 0.4763 +- 0.1301
 
 ![](Examples/V200_mlpreg.png)
 
-### MCNeuralNetwork (Very Old Now & Worst)
+### MCNeuralNetwork (First Monte Carlo NN Attempt ;))
 - Time Training: 22.6s
 - CV R^2 Score (1 is best): -2.8694 +- 0.8680
 
