@@ -2,9 +2,11 @@
 
 ## Overview
 
-Originally a challenge for myself to make a Neural Network with a unique training style, this has become an approach to training neural networks that are on par with models such as the MLPRegressor featured in SciKit-Learn. Instead of using methods like backpropagation for training, a basis of random (Monte Carlo-like) modifications are made to find improvements.
+An extremely lightweight machine learning package with various models and tools.
 
-An exciting extension of this training method is that it can be applied to any machine learning model that simply consists of groups of numerical parameters/coefficients (i.e. the weights and biases in neural networks).
+Originally a hobby project, this has become an approach to training neural networks that are on par with models such as the MLPRegressor featured in SciKit-Learn. Instead of using methods like backpropagation for training, a basis of random (Monte Carlo-like) modifications is made to find improvements.
+
+An exciting extension of this training method is that it can be applied to any machine learning model that consists of groups of numerical parameters/coefficients (i.e. the weights and biases in neural networks). The SOUP models are an example of some other high-preforming models that use the same exact training method.
 
 View the PyPI release at:
 https://pypi.org/project/mcnets/
@@ -15,33 +17,67 @@ Below is a quick code meant to show a few ways to make the NeuralNetwork models,
 ```
 import mcnets as mc
 import numpy as np
+from time import perf_counter as pc
 from sklearn.datasets import load_diabetes
 
 # Get data
 X, y = load_diabetes(return_X_y=True)
 
-# Base Neural Network (Uses ReLU and one hidden layer of 100 units)
-m1 = mc.NeuralNetwork()
+# Base Neural Network (Uses one hidden layer of 100 units with ReLU)
+m1 = mc.NeuralNetwork(hidden_counts=(100), activations='relu')
 
-# Example using no activation functions (just linear pass-throughs)
-m2 = mc.NeuralNetwork(hidden_counts=[10, 10], activations=['linear', 'identity'])
+# Base Neural Network with early stopping tolerances (see docstring)
+m2 = mc.NeuralNetwork(hidden_counts=(100), activations='relu', quad_tol=-0.015, tri_tol=-0.012)
 
-# Various ways activation functions can be given besides the available strings
-m3 = mc.NeuralNetwork(hidden_counts=[25, 10, 25], activations=[lambda x: np.maximum(x, -0.5), 'elu', np.tanh])
+# Various ways activation functions can be given besides the avalible strings
+m3 = mc.NeuralNetwork(hidden_counts=(25, 10, 25), activations=[(lambda x: np.maximum(x, -0.5)), ('elu'), (np.tanh)])
 
-# Preform Cross-Validations on all, using R^2 score (Default)
-cv1 = mc.cross_val(m1, X, y, verbose=1)
-cv2 = mc.cross_val(m2, X, y, verbose=1)
-cv3 = mc.cross_val(m3, X, y, verbose=1)
+# Example of other hyperparams; This one tends to do the best and is the fastest by far! Hyperparam optimization =)
+m4 = mc.NeuralNetwork(hidden_counts=[10, 10, 10], activations=['lin', 'linear', 'identity'], input_acti='lin',
+                      output_acti='lin', max_iter=1000, learning_rate_init=0.8, learning_rate_mode='adaptive',
+                      n_iter_no_change=100, l2_reg=0, l1_reg=0, dropout=0.01, validation_fraction=0, 
+                      early_stopping=True, quad_tol=-0.04, tri_tol=-0.01, verbose=False)
+
+# 'SOUP' Regressor Custom Model (see docstring)
+m5 = mc.SoupRegressor(use_tan=False, max_iter=100, dropout=0, learning_rate_init=15,
+                      learning_rate_mode='adaptive', n_iter_no_change=10, use_biases=True,
+                      trainable_biases=False, l1_reg=0, l2_reg=0, verbose=False)
+
+# Preform Cross-Validations on all, using R^2 score (Default) and cv=5 (Default)
+print("Model 1 Cross-Validation:")
+t0 = pc()
+cv1 = mc.cross_val(m1, X, y, cv=10, verbose=1)
+print(f"Time Taken: {(pc()-t0):2f}s\n")
+
+print("Model 2 Cross-Validation:")
+t0 = pc()
+cv2 = mc.cross_val(m2, X, y, cv=10, verbose=1)
+print(f"Time Taken: {(pc()-t0):2f}s\n")
+
+print("Model 3 Cross-Validation:")
+t0 = pc()
+cv3 = mc.cross_val(m3, X, y, cv=10, verbose=1)
+print(f"Time Taken: {(pc()-t0):2f}s\n")
+
+print("Model 4 Cross-Validation:")
+t0 = pc()
+cv4 = mc.cross_val(m4, X, y, cv=10, verbose=1)
+print(f"Time Taken: {(pc()-t0):2f}s\n")
+
+print("Model 5 Cross-Validation:")
+t0 = pc()
+cv5 = mc.cross_val(m5, X, y, cv=10, verbose=1)
+print(f"Time Taken: {(pc()-t0):2f}s\n")
 
 # Report best model
-scores = [cv1.mean(), cv2.mean(), cv3.mean()]
-models = [m1, m2, m3]
+scores = [cv1.mean(), cv2.mean(), cv3.mean(), cv4.mean(), cv5.mean()]
+models = [m1, m2, m3, m4, m5]
 best_ind = scores.index(max(scores))
 
-print(f"\nBest Model: m{best_ind + 1}")
-print(f"Hidden Layer Sizes: {models[best_ind].hidden_counts}")
-print(f"Hidden Layer Activations: {models[best_ind].activations}")
+print(f"Best Model: Model {best_ind + 1}")
+if best_ind < 4:
+    print(f"Hidden Layer Sizes: {models[best_ind].hidden_counts}")
+    print(f"Hidden Layer Activations: {[af.__name__ for af in models[best_ind].activations]}")
 ```
 
 ## Current Ability
