@@ -97,7 +97,7 @@ The information below is for a test of the current NeuralNetwork, SKlearn's MLPR
 
 ![](Examples/V200_mlpreg.png)
 
-### MCNeuralNetwork (Worst)
+### MCNeuralNetwork (Very Old Now & Worst)
 - Time Training: 22.6s
 - CV R^2 Score (1 is best): -2.8694 +- 0.8680
 
