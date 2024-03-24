@@ -9,7 +9,6 @@ from joblib import load, dump
 # MCNet Dependancies
 from mcnets.activations import *
 
-
 ## Models ##
 # Primary Monte-Carlo Neural Network Model
 class NeuralNetwork:
@@ -349,9 +348,6 @@ class NeuralNetwork:
     def save(self, name:str):
         save_model(self, name=name)
 
-    def load(self, name:str):
-        self = load_model(name=name)
-
     def get_param_ranges_for_optuna(self):
         """Returns a dictionary of params and their possible values either via tuples of (min_val, max_val)
         or lists for discrete categorical params/options.
@@ -364,16 +360,16 @@ class NeuralNetwork:
         These params should be directly set as desired in an optimizer."""
 
         return {
-            'input_acti': ['LIN' 'RELU', 'LRELU', 'SILU', 'SIG', 'DSILU', 'TANH', 'ELU', 'ROOT', 'SQR', 'RND'],
-            'output_acti': ['LIN' 'RELU', 'LRELU', 'SILU', 'SIG', 'DSILU', 'TANH', 'ELU', 'ROOT', 'SQR', 'RND'],
+            'input_acti': ['LIN', 'RELU', 'LRELU', 'SILU', 'SIG', 'DSILU', 'TANH', 'ELU', 'ROOT', 'SQR', 'RND'],
+            'output_acti': ['LIN', 'RELU', 'LRELU', 'SILU', 'SIG', 'DSILU', 'TANH', 'ELU', 'ROOT', 'SQR', 'RND'],
             'max_iter': (1, 10000),
-            'learning_rate_init': (1e-3, 10),
+            'learning_rate_init': (1e-3, 5),
             'learning_rate_mode': ['adaptive', 'dynamic', 'constant'],
             'gamma': (1e-6, 10),
             'n_iter_no_change': (1, 5000),
             'l2_reg': (1e-10, 1),
             'l1_reg': (1e-10, 1),
-            'dropout': (0, 1), 
+            'dropout': (0, 0.9), 
             'validation_fraction': (0.1, 0.75),
             'early_stopping': [True, False],
             'quad_tol': (-1, 1),
