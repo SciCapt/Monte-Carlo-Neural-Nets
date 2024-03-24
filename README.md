@@ -12,7 +12,7 @@ View the PyPI release at:
 https://pypi.org/project/mcnets/
 
 ## Quickstart
-Below is a quick code meant to show a few ways to make the NeuralNetwork models, and use them in a cross-validation with the built-in cross_val function.
+Below is a quick code meant to show a few ways to make the NeuralNetwork and SOUP models, and use them in a cross-validation with the built-in cross_val function.
 
 ```
 import mcnets as mc
