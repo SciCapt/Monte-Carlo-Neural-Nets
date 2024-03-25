@@ -2,7 +2,9 @@
 
 ## Overview
 
-An extremely lightweight machine learning package with various models and tools.
+An extremely lightweight machine learning package with various models and tools. Install using:
+
+```pip install mcnets```
 
 Originally a hobby project, this has become an approach to training neural networks that are on par with models such as the MLPRegressor featured in SciKit-Learn. Instead of using methods like backpropagation for training, a basis of random (Monte Carlo-like) modifications is made to find improvements.
 
