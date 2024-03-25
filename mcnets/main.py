@@ -214,7 +214,7 @@ class NeuralNetwork:
     def fit(self, X:np.ndarray, Y:np.ndarray, score_type='r2'):
         """Fit the model to the given data. 
         
-        Returns a dict with the training score/error history under 'train'
+        Returns a dict with the training score/error history under 'train' and the validation history under 'val'.
         """
 
         # History dict
@@ -862,7 +862,8 @@ def score_model(model, X:np.ndarray, ytrue:np.ndarray, method='r2') -> float:
     """
 
     # Force lowercase
-    method = method.lower()
+    if not callable(method):
+        method = method.lower()
     
     # Get model output
     ypred = model.predict(X)
