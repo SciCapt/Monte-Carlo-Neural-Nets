@@ -11,7 +11,30 @@ An exciting extension of this training method is that it can be applied to any m
 View the PyPI release at:
 https://pypi.org/project/mcnets/
 
-## Quickstart
+## Current Ability
+Before V2.0.0, directly comparing the old neural network model (MCNeuralNetwork) to something like the MLPRegressor in SciKit-Learn just wasn't fair. However, with the new speed and accuracy improvements that warranted removing all V1.5.0 and earlier models, the comparison is now equal in a variety of situations.
+
+The information below is for a test of the current NeuralNetwork, SKlearn's MLPRegressor and the old MCNeuralNetwork models fitted to the same data (sklearn load_diabetes) scored off of a 10-CV cross-validation.
+
+### NeuralNetwork (Current Package NN; Huge Improvements from Pre-V2.0.0)
+- Time Training: 3.4s!
+- CV R^2 Score (1 is best): 0.4718 +- 0.1040
+
+![](Examples/V200_newmcnn.png)
+
+### MLPRegressor (From SciKit-Learn; For Comparison)
+- Time Training: 44.5s
+- CV R^2 Score (1 is best): 0.4763 +- 0.1301
+
+![](Examples/V200_mlpreg.png)
+
+### MCNeuralNetwork (First Monte Carlo NN Attempt ;))
+- Time Training: 22.6s
+- CV R^2 Score (1 is best): -2.8694 +- 0.8680
+
+![](Examples/V200_oldmcnn.png)
+
+## Quickstart Code
 Below is a quick code meant to show a few ways to make the NeuralNetwork and SOUP models, and use them in a cross-validation with the built-in cross_val function.
 
 ```
@@ -79,29 +102,6 @@ if best_ind < 4:
     print(f"Hidden Layer Sizes: {models[best_ind].hidden_counts}")
     print(f"Hidden Layer Activations: {[af.__name__ for af in models[best_ind].activations]}")
 ```
-
-## Current Ability
-Before V2.0.0, directly comparing the old neural network model (MCNeuralNetwork) to something like the MLPRegressor in SciKit-Learn just wasn't fair. However, with the new speed and accuracy improvements that warranted removing all V1.5.0 and earlier models, the comparison is now equal in a variety of situations.
-
-The information below is for a test of the current NeuralNetwork, SKlearn's MLPRegressor and the old MCNeuralNetwork models fitted to the same data (sklearn load_diabetes) scored off of a 10-CV cross-validation.
-
-### NeuralNetwork (Current Package NN; Huge Improvements from Pre-V2.0.0)
-- Time Training: 3.4s!
-- CV R^2 Score (1 is best): 0.4718 +- 0.1040
-
-![](Examples/V200_newmcnn.png)
-
-### MLPRegressor (From SciKit-Learn; For Comparison)
-- Time Training: 44.5s
-- CV R^2 Score (1 is best): 0.4763 +- 0.1301
-
-![](Examples/V200_mlpreg.png)
-
-### MCNeuralNetwork (First Monte Carlo NN Attempt ;))
-- Time Training: 22.6s
-- CV R^2 Score (1 is best): -2.8694 +- 0.8680
-
-![](Examples/V200_oldmcnn.png)
 
 ## Speed Tests
 Below are some stats on the effective speeds of the old-generation MCNeuralNetworks with various hidden layer dimensions. While the exact speed values and calculation times are no longer relevant, the comparison of models with equal parameters but vastly different dimensions of their hidden layers is still quite important.
